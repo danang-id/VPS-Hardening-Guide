@@ -5,7 +5,7 @@ General-purpose security hardening baseline for freshly provisioned Linux VPS in
 1. Operating System Baseline
 2. User & Authentication
 3. Secure Shell (SSH)
-4. Firewall
+4. Network & Firewall
 5. Package Integrity
 6. Mandatory Access Control (MAC)
 7. Logging & Audit
@@ -45,7 +45,7 @@ General-purpose security hardening baseline for freshly provisioned Linux VPS in
       </td>
       <td style="min-width: 500px">
         <b><a href="Debian/13/GUIDE.md">Guide for Debian 13.x (Trixie | current "stable")</a></b>
-        <br/> Version: Debian-13-Rev-0 | <a href="Debian-13/CHANGELOG.md">CHANGELOG</a>
+        <br/> Version: Debian-13-Rev-0 | <a href="Debian/13/CHANGELOG.md">CHANGELOG</a>
         <hr/>
         <b><a href="Debian/12/GUIDE.md">Guide for Debian 12.x (Bookworm | current "oldstable")</a></b>
         <br/> <i>Work In-Progress (WIP)</i>

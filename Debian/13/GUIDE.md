@@ -1,9 +1,10 @@
 # VPS Hardening Guide (Debian-13)
 
-| &nbsp; | &nbsp; |
-| --- | --- |
-| **Target OS** | Debian 13.x (Trixie - current "stable") |
-| **Guide Version** | Debian-13-Rev-0 |
+|                   |                                          |
+| ----------------- | ---------------------------------------- |
+| **Target OS**     | Debian 13.x (Trixie — current "stable")  |
+| **Guide Version** | Debian-13-Rev-0                          |
+
 
 ## Contextual Preamble
 
@@ -16,41 +17,69 @@
 ### Out of Scope
 
 - Partition restructuring on live systems
-- Service-specific hardening (Nginx, Postfix, MariaDB, etc.)
+- Service-specific hardening (Nginx, Postfix, PostgreSQL, etc.)
 - Container / Docker hardening
 - Cloud provider security group configuration
 - Multi-user access policies
 - Port knocking (noted as optional escalation in Section 3, not prescribed)
 
+### Guide Variables
+
+Set these once before running any commands. Every command in this guide references these variables — substitute your own values here and the rest of the guide follows automatically.
+
+```bash
+# ============================================================
+# Guide Variables — set these before running any commands
+# ============================================================
+export VPS_USER="dan"                            # your rootless admin username
+export VPS_HOSTNAME="anila"                      # your server hostname
+export VPS_TIMEZONE="Asia/Jakarta"               # your timezone (timedatectl list-timezones)
+export VPS_SSH_PORT="32022"                      # your chosen non-standard SSH port
+export VPS_MIRROR="kartolo.sby.datautama.net.id" # your nearest Debian mirror
+```
+
+> ⚠️ These variables are set in your current shell session only. If you disconnect and reconnect, re-run this block before continuing.
+
+### Customisation Reference
+
+| Variable       | Example value                     | Description                                              |
+| -------------- | --------------------------------- | -------------------------------------------------------- |
+| `VPS_USER`     | `dan`                             | Rootless admin user created in Section 2                 |
+| `VPS_HOSTNAME` | `anila`                           | Server hostname set in Section 1                         |
+| `VPS_TIMEZONE` | `Asia/Jakarta`                    | Timezone set in Section 1                                |
+| `VPS_SSH_PORT` | `32022`                           | Non-standard SSH port used in Sections 3 and 4           |
+| `VPS_MIRROR`   | `kartolo.sby.datautama.net.id`    | Debian mirror used in Section 1; must be an official mirror listed at `debian.org/mirror/list` |
+
 
 ## Section Order
 
-| # | Section |
-|---|---------|
-| 1 | [Operating System Baseline](#section-1--operating-system-baseline) |
-| 2 | [User & Authentication](#section-2--user--authentication) |
-| 3 | [Secure Shell (SSH)](#section-3--secure-shell-ssh) |
-| 4 | [Firewall](#section-4--firewall) |
-| 5 | [Package Integrity](#section-5--package-integrity) |
-| 6 | [Mandatory Access Control (MAC)](#section-6--mandatory-access-control-mac) |
-| 7 | [Logging & Audit](#section-7--logging--audit) |
-| 8 | [Kernel Hardening](#section-8--kernel-hardening) |
-| 9 | [Filesystem Hardening](#section-9--filesystem-hardening) |
-| 10 | [Performance Optimization](#section-10--performance-optimization) |
-| 11 | [Intrusion Detection System](#section-11--intrusion-detection-system) |
-| 12 | [Maintenance Hygiene](#section-12--maintenance-hygiene) |
+| #  | Section                                                                        |
+| -- | ------------------------------------------------------------------------------ |
+| 1  | [Operating System Baseline](#section-1--operating-system-baseline)             |
+| 2  | [User & Authentication](#section-2--user--authentication)                      |
+| 3  | [Secure Shell (SSH)](#section-3--secure-shell-ssh)                             |
+| 4  | [Network & Firewall](#section-4--network--firewall)                            |
+| 5  | [Package Integrity](#section-5--package-integrity)                             |
+| 6  | [Mandatory Access Control (MAC)](#section-6--mandatory-access-control-mac)     |
+| 7  | [Logging & Audit](#section-7--logging--audit)                                  |
+| 8  | [Kernel Hardening](#section-8--kernel-hardening)                               |
+| 9  | [Filesystem Hardening](#section-9--filesystem-hardening)                       |
+| 10 | [Performance Optimization](#section-10--performance-optimization)              |
+| 11 | [Intrusion Detection System](#section-11--intrusion-detection-system)          |
+| 12 | [Maintenance Hygiene](#section-12--maintenance-hygiene)                        |
 
 ---
 
+
 ## Section 1 — Operating System Baseline
 
-> Goal: Start from the leanest, most up-to-date system state possible. Every unnecessary package or service is an unmonitored attack surface.
+**Goal:** Start from the leanest, most up-to-date system state possible. Every unnecessary package or service is an unmonitored attack surface.
 
 ### Checklist
 
-- [ ] **1.1** Set correct hostname
+- [ ] **1.1** Set correct hostname and add to `/etc/hosts`
 - [ ] **1.2** Set correct timezone
-- [ ] **1.3** Configure local Indonesian mirror (`kartolo.sby.datautama.net.id`)
+- [ ] **1.3** Configure local mirror
 - [ ] **1.4** Verify APT GPG verification is active, then apply all pending updates
 - [ ] **1.5** Install essential baseline packages
 - [ ] **1.6** Configure `unattended-upgrades` for security-only auto-updates
@@ -58,75 +87,76 @@
 - [ ] **1.8** Disable and stop unused services
 - [ ] **1.9** Verify `systemd-timesyncd` is running and synchronized
 
-### Rationale
+### Steps
 
-**1.1 — Hostname**  
+---
+
+#### 1.1 — Set correct hostname and add to `/etc/hosts`
+
 A meaningful hostname prevents confusion in logs. Debian 13 defaults to `debian` — every log entry will be ambiguous if you ever cross-reference across machines.
 
-**1.2 — Timezone**  
-Set to your actual operational timezone. Mismatched timezones corrupt log correlation. `UTC` is acceptable and often preferred for servers managed across regions.
-
-**1.3 — Local Indonesian mirror (`kartolo.sby.datautama.net.id`)**  
-`kartolo.sby.datautama.net.id` is operated by PT Data Utama, Surabaya, and is an official Debian mirror listed on `debian.org/mirror/list`. It covers the Debian 13 (trixie) main archive, security updates, and point-release updates over HTTPS. Configuring this mirror before any `apt` operation ensures all package downloads route domestically. All packages remain GPG-verified against Debian's archive signing key regardless of which mirror delivers them — using a local mirror does not weaken APT's verification chain.
-
-Debian 13 uses DEB822-format sources in `/etc/apt/sources.list.d/debian.sources` alongside the traditional `/etc/apt/sources.list` — both files are active and processed by APT. The guide targets `debian.sources` for the mirror configuration since it is the DEB822 source. Both files are backed up before modification so the fallback can fully restore the pre-kartolo state.
-
-**1.4 — GPG verification + full upgrade**  
-APT enforces GPG signature verification by default — every package is checked against Debian's archive signing key before installation. Unlike `dnf`'s per-repo `gpgcheck` flag, APT's verification is archive-wide and cannot be silently disabled without explicit overrides like `[trusted=yes]` in sources or `--allow-unauthenticated` flags. This step confirms no such bypass is present, then runs a full upgrade. Hardening built on top of unpatched packages is built on a weak foundation. Reboot afterward if the kernel was upgraded.
-
-**1.5 — Install essential packages**  
-A minimal Debian 13 VPS image does not ship with `nano`, `zsh`, `firewalld`, `fail2ban`, `auditd`, `aide`, `debsums`, `apparmor-utils`, or `libpam-pwquality`. On Debian, `auditd` is a single package includes the daemon and all CLI tools (`auditctl`, `ausearch`, `aureport`, `augenrules`). Installing everything the guide depends on upfront in one pass makes the guide fully script-friendly.
-
-**1.6 — `unattended-upgrades` (security only)**  
-`unattended-upgrades` is Debian's equivalent of `dnf-automatic`. It applies security patches automatically without pulling in feature updates. Configured via `/etc/apt/apt.conf.d/50unattended-upgrades` and triggered by the `apt-daily-upgrade.timer` systemd unit. The `Allowed-Origins` list is restricted to `trixie-security` only — non-security updates are not auto-applied.
-
-**1.7 — Package removal**  
-Packages with no purpose are packages that can have vulnerabilities. Common targets: `telnet`, `rsh-client`, `nis`, `rpcbind` (if not using NFS), `avahi-daemon`, `cups`. Debian minimal images are lean — verify what's present before removing.
-
-**1.8 — Unused services**  
-A stopped and disabled service cannot be exploited. Audit with `systemctl list-units --type=service --state=running` and be deliberate about everything that's active.
-
-**1.9 — `systemd-timesyncd`**  
-Debian 13 uses `systemd-timesyncd` for NTP synchronization by default — it is lighter than `chrony` and appropriate for general VPS use. Accurate time is not optional: TLS certificate validation, `auditd` timestamps, and `fail2ban` log parsing all depend on it.
-
-### Scriptable Commands
+The hostname must also be added to `/etc/hosts` immediately after being set. `sudo` performs a hostname lookup during initialization — if the hostname does not resolve, on some PAM configurations this causes the entire authentication stack to fail, making correct passwords appear wrong. `hostnamectl set-hostname` and `/etc/hosts` do not sync automatically.
 
 ```bash
-# --- 1.1 Set hostname ---
-hostnamectl set-hostname your-hostname
+# Guide variables — re-export if reconnected since initial setup
+# export VPS_HOSTNAME="anila"
+
+hostnamectl set-hostname "$VPS_HOSTNAME"
+
+# Add to /etc/hosts to prevent sudo hostname resolution failures:
+echo "127.0.1.1 ${VPS_HOSTNAME}" >> /etc/hosts
+
 # Verify:
 hostnamectl status
+grep "$VPS_HOSTNAME" /etc/hosts
+```
 
-# --- 1.2 Set timezone ---
-timedatectl set-timezone Asia/Jakarta  # adjust to your zone
+---
+
+#### 1.2 — Set correct timezone
+
+Mismatched timezones corrupt log correlation. `UTC` is acceptable and often preferred for servers managed across regions. To list all available timezones, run `timedatectl list-timezones`.
+
+```bash
+timedatectl set-timezone "$VPS_TIMEZONE"
+
 # Verify:
 timedatectl status
+```
 
-# --- 1.3 Configure local Indonesian mirror ---
-# Mirror: kartolo.sby.datautama.net.id (PT Data Utama, Surabaya)
-# Official Debian mirror — listed at debian.org/mirror/list
-# Covers: trixie main archive, security, updates
-# Protocol: HTTPS
+---
 
+#### 1.3 — Configure local mirror
+
+Using a geographically close mirror reduces latency on every `apt` operation. All packages remain GPG-verified against Debian's archive signing key regardless of which mirror delivers them — using a local mirror does not weaken APT's verification chain. `VPS_MIRROR` must be an official Debian mirror listed at `debian.org/mirror/list` and must cover the trixie main archive, `trixie-security`, and `trixie-updates`.
+
+Debian 13 uses DEB822-format sources in `/etc/apt/sources.list.d/debian.sources` alongside the traditional `/etc/apt/sources.list` — both files are active and processed by APT. After writing the new `debian.sources`, `sources.list` is emptied after backup to prevent duplicate source processing. The `debian.sources` backup step is guarded — on VPS images that ship without a `debian.sources` file the guard prevents a hard error.
+
+```bash
 # Test mirror reachability before committing:
 curl -o /dev/null -s -w "HTTP %{http_code} — Time: %{time_total}s\n" \
-  https://kartolo.sby.datautama.net.id/debian/dists/trixie/Release
+  "https://${VPS_MIRROR}/debian/dists/trixie/Release"
 # Expected: HTTP 200 — Time: <1s
-# If unreachable, skip this step and proceed with default deb.debian.org
+# If unreachable, use the default deb.debian.org and skip the mirror change
 
-# Backup both source files (traditional and DEB822-format):
-cp /etc/apt/sources.list~
+# Backup sources.list:
 cp /etc/apt/sources.list /etc/apt/sources.list.bak
-cp /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list.d/debian.sources.bak
-# Note any additional provider sources:
+
+# Backup debian.sources only if it exists:
+[ -f /etc/apt/sources.list.d/debian.sources ] && \
+  cp /etc/apt/sources.list.d/debian.sources \
+     /etc/apt/sources.list.d/debian.sources.bak
+
+# Note any additional provider sources before proceeding:
 ls /etc/apt/sources.list.d/
 
-cat > /etc/apt/sources.list.d/debian.sources << 'EOF'
-# Source Mirror: PT Data Utama, Surabaya (official Debian mirror)
+# Write new debian.sources pointing to the selected mirror:
+cat > /etc/apt/sources.list.d/debian.sources << EOF
+# Source Mirror: ${VPS_MIRROR}
 
 # Base & Updates
 Types: deb deb-src
-URIs: https://kartolo.sby.datautama.net.id/debian
+URIs: https://${VPS_MIRROR}/debian
 Suites: trixie trixie-updates
 Components: main contrib non-free non-free-firmware
 Architectures: amd64
@@ -134,18 +164,38 @@ Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 
 # Security
 Types: deb deb-src
-URIs: https://kartolo.sby.datautama.net.id/debian-security
+URIs: https://${VPS_MIRROR}/debian-security
 Suites: trixie-security
 Components: main contrib non-free non-free-firmware
 Architectures: amd64
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 EOF
 
-# Update metadata and verify mirror is working:
-apt update
-# All repos should resolve against kartolo.sby.datautama.net.id
+# Empty sources.list to prevent duplicate processing:
+echo '# Replaced by /etc/apt/sources.list.d/debian.sources' \
+  > /etc/apt/sources.list
 
-# --- 1.4 Verify GPG enforcement + full upgrade ---
+# Update metadata and verify the mirror is responding:
+apt update
+# All repos should resolve against ${VPS_MIRROR}
+```
+
+> **Fallback:** If the mirror is unreachable, restore both source files and proceed with the Debian CDN:
+> ```bash
+> cp /etc/apt/sources.list.bak /etc/apt/sources.list
+> [ -f /etc/apt/sources.list.d/debian.sources.bak ] && \
+>   cp /etc/apt/sources.list.d/debian.sources.bak \
+>      /etc/apt/sources.list.d/debian.sources
+> apt update
+> ```
+
+---
+
+#### 1.4 — Verify GPG enforcement and apply full upgrade
+
+APT enforces GPG signature verification by default — every package is checked against Debian's archive signing key before installation. Unlike `dnf`'s per-repo `gpgcheck` flag, APT's verification is archive-wide and cannot be silently disabled without explicit overrides like `[trusted=yes]` in sources or `--allow-unauthenticated` flags. This step confirms no such bypass is present, then runs a full upgrade. Hardening built on top of unpatched packages is built on a weak foundation.
+
+```bash
 # Confirm no source has a [trusted=yes] bypass:
 grep -rE 'trusted=yes|allow-unauthenticated|AllowUnauthenticated' \
   /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null
@@ -155,25 +205,46 @@ grep -rE 'trusted=yes|allow-unauthenticated|AllowUnauthenticated' \
 ls /etc/apt/trusted.gpg.d/
 # Expected: debian-archive-*.gpg files
 
-# Full upgrade (downloads from kartolo.sby.datautama.net.id):
-apt upgrade -y
-# Reboot if kernel was upgraded:
-# reboot
+# Check global APT config for unauthenticated bypasses:
+grep -r 'AllowUnauthenticated\|allow-unauthenticated' \
+  /etc/apt/apt.conf.d/ 2>/dev/null
+# Expected: no output
 
-# --- 1.5 Install essential packages ---
+# Full upgrade:
+apt upgrade -y
+```
+
+> **Reboot if the kernel was upgraded** before continuing to Section 2.
+
+---
+
+#### 1.5 — Install essential baseline packages
+
+A minimal Debian 13 VPS image does not ship with the tools this guide depends on. `cron` is required for Section 11 — without a cron daemon, `/etc/cron.d/aide-check` is silently ignored. On Debian, `auditd` is a single package that includes the daemon and all CLI tools (`auditctl`, `ausearch`, `aureport`, `augenrules`). Installing everything upfront in one pass makes the rest of the guide fully script-friendly.
+
+```bash
 apt install -y \
   nano \
   zsh \
   curl \
+  cron \
   firewalld \
   fail2ban \
   auditd \
   aide \
   debsums \
+  apt-show-versions \
   apparmor-utils \
   libpam-pwquality
+```
 
-# --- 1.6 Configure unattended-upgrades (security-only) ---
+---
+
+#### 1.6 — Configure `unattended-upgrades` for security-only auto-updates
+
+`unattended-upgrades` is Debian's equivalent of `dnf-automatic`. It applies security patches automatically without pulling in feature updates. The `Allowed-Origins` list is restricted to `trixie-security` only — non-security updates are not auto-applied and remain available for manual review.
+
+```bash
 apt install -y unattended-upgrades
 
 cat > /etc/apt/apt.conf.d/50unattended-upgrades << 'EOF'
@@ -191,167 +262,272 @@ APT::Periodic::Unattended-Upgrade "1";
 EOF
 
 systemctl enable --now unattended-upgrades
+
 # Verify:
 systemctl status unattended-upgrades
 systemctl status apt-daily-upgrade.timer
+```
 
-# --- 1.7 Remove bloat packages ---
+---
+
+#### 1.7 — Remove known bloat packages
+
+Packages with no purpose are packages that can have vulnerabilities. Debian minimal images are lean — these may already be absent on your image. The `2>/dev/null || true` suppresses errors for packages that are not installed.
+
+```bash
 apt purge -y telnet rsh-client nis rpcbind avahi-daemon cups 2>/dev/null || true
 apt autoremove -y
+```
 
-# --- 1.8 Audit running services (manual review step) ---
+---
+
+#### 1.8 — Disable and stop unused services
+
+A stopped and disabled service cannot be exploited. This is a manual review step — audit what is running and make a deliberate decision about each service before continuing.
+
+```bash
 systemctl list-units --type=service --state=running
 # Disable anything not intentionally needed:
 # systemctl disable --now <service-name>
+```
 
-# --- 1.9 Verify systemd-timesyncd ---
+---
+
+#### 1.9 — Verify `systemd-timesyncd` is running and synchronized
+
+Debian 13 uses `systemd-timesyncd` for NTP synchronization by default — lighter than `chrony` and appropriate for general VPS use. Accurate time is not optional: TLS certificate validation, `auditd` timestamps, and `fail2ban` log parsing all depend on it.
+
+```bash
 systemctl enable --now systemd-timesyncd
 timedatectl status
 # Confirm: "NTP service: active" and "System clock synchronized: yes"
 ```
 
-> **Fallback:** If `kartolo.sby.datautama.net.id` is unreachable on first run, restore both source files and proceed with the Debian CDN:
-> ```bash
-> cp /etc/apt/sources.list.bak /etc/apt/sources.list
-> cp /etc/apt/sources.list.d/debian.sources.bak /etc/apt/sources.list.d/debian.sources
-> apt update
-> ```
+---
 
 ### [Back to Top](#section-order)
 
 ---
 
+
 ## Section 2 — User & Authentication
 
-> Goal: Eliminate root as an operable account. All human access flows through `dan` with a password and sudo. Root becomes a locked, inert account.
+**Goal:** Eliminate root as an operable account. All human access flows through a rootless user with key-pair SSH and root-password-gated sudo. Root becomes a locked login account with a known password preserved for sudo.
 
 ### Checklist
 
-- [ ] **2.1** Create user `dan` with a strong password
-- [ ] **2.2** Add `dan` to the `sudo` group
-- [ ] **2.3** Verify `sudo` group is enabled in `sudoers`
-- [ ] **2.4** Set secure `umask` system-wide and for `dan`
-- [ ] **2.5** Set `zsh` as default shell for `dan` and `root`
+- [ ] **2.1** Create rootless user — no password (key-only access)
+- [ ] **2.2** Add user to the `sudo` group
+- [ ] **2.3** Configure sudoers — user authenticates sudo with root's password
+- [ ] **2.4** Set secure `umask` system-wide
+- [ ] **2.5** Set `zsh` as default shell for the user and `root`
 - [ ] **2.6** Install oh-my-zsh for `root`
-- [ ] **2.7** Install oh-my-zsh for `dan`
-- [ ] **2.8** Configure `fino-time` theme and `umask` in `.zshrc` for both users
-- [ ] **2.9** Lock the root account
+- [ ] **2.7** Install oh-my-zsh for the user
+- [ ] **2.8** Configure `fino-time` theme and `umask` in `.zshrc` for both
+- [ ] **2.9** Set a known root password — root login blocked at SSH level, not by password lock
 - [ ] **2.10** Harden PAM — limit login attempts via `pam_faillock`
 - [ ] **2.11** Enforce password quality policy via `pwquality`
 
-### Rationale
+### Steps
 
-**2.1 & 2.2 — Create `dan` and add to `sudo`**  
-The VPS arrives with only a root account. Before locking root (2.9), `dan` must exist and be fully operational — including sudo access. **Do not lock root before verifying `dan` can sudo.** Doing it in the wrong order will lock you out of your own server.
+---
 
-On Debian, the privilege escalation group is `sudo`, not `wheel`. The distinction is in naming only — the mechanism is identical.
+#### 2.1 — Create rootless user with no password
 
-**2.3 — Verify `sudo` in sudoers**  
-Debian enables the `sudo` group in `/etc/sudoers` by default: `%sudo ALL=(ALL:ALL) ALL`. Confirm this line is uncommented and active. We use the `sudo` group rather than a direct `sudoers` entry for `dan` — it's cleaner and easier to audit.
-
-**2.4 — `umask 027`**  
-The default `umask 022` creates files readable by all users. `027` restricts new files to owner read/write, group read-only, and no access for others. Applied system-wide via `/etc/profile` — this covers both bash and zsh login shells. Per-user `.zshrc` entries are added in step 2.8 to also cover interactive non-login zsh sessions.
-
-**2.5 — Set zsh as default shell**  
-`chsh -s /bin/zsh` updates `/etc/passwd` to set zsh as the login shell for both `dan` and `root`. Root's shell is set here even though the account is locked in step 2.9 — when you access root via `sudo -i` or `sudo su` from `dan`, you get root's configured shell.
-
-**2.6 & 2.7 — Install oh-my-zsh**  
-oh-my-zsh is installed via its official `install.sh` script fetched over HTTPS from GitHub. The `--unattended` flag suppresses interactive prompts. We install for `root` first while operating as root, then for `dan` using `su - dan` to ensure oh-my-zsh is correctly owned by and configured for each user separately.
-
-**2.8 — Configure `fino-time` theme and `umask`**  
-`fino-time` is a built-in oh-my-zsh theme — no additional download needed. We set it by replacing the default `ZSH_THEME` value in each user's `.zshrc`, and append `umask 027` to cover interactive non-login sessions where `/etc/profile` is not sourced.
-
-**2.9 — Lock root (`passwd -l root`)**  
-Once `dan` is confirmed working with sudo, root should be completely inert. `passwd -l` places a `!` prefix on the password hash in `/etc/shadow` — no authentication method can unlock it without going through `dan` first.
-
-**2.10 — PAM `pam_faillock`**  
-`pam_faillock` is part of `libpam-modules`, which is a core Debian package — no additional install needed. Tracks failed authentication attempts and locks an account after a threshold. Configuration: 5 failed attempts → 15 minute lockout.
-
-On Debian, PAM is managed through `pam-auth-update` which generates `/etc/pam.d/common-*` files from profiles in `/usr/share/pam-configs/`. Debian includes a `faillock` pam-config profile in `libpam-modules`. If it was applied during installation, the faillock lines will already be in `common-auth` and `common-account`. This step checks first and adds manually only if missing — important because manually added PAM lines can be overwritten by a future `pam-auth-update --force` run.
-
-**2.11 — `pwquality`**  
-`libpam-pwquality` was installed in Section 1.5. Configuration via `/etc/security/pwquality.conf`. Minimum length 12, require mixed character classes, reject passwords too similar to the username.
-
-### Scriptable Commands
+The user has no password — `passwd -l` locks the password field in `/etc/shadow` immediately after account creation. SSH access is key-only (configured in Section 3). There is no password to brute-force and no password for PAM to authenticate during SSH sessions. Console login without a key is intentionally impossible.
 
 ```bash
-# --- 2.1 Create user dan with password ---
-useradd -m -s /bin/bash dan
-passwd dan
-# You will be prompted to enter and confirm a password interactively
+# Guide variables — re-export if reconnected since initial setup
+# export VPS_USER="dan"
 
-# --- 2.2 Add dan to sudo group ---
-usermod -aG sudo dan
+useradd -m -s /bin/bash "$VPS_USER"
+# Lock the password field immediately — key-only access, no password
+passwd -l "$VPS_USER"
 
-# --- 2.3 Verify sudo group is active in sudoers ---
+# Verify (locked entry starts with '!'):
+grep "^${VPS_USER}:" /etc/shadow | cut -d: -f2
+```
+
+---
+
+#### 2.2 — Add user to the `sudo` group
+
+On Debian, the privilege escalation group is `sudo`, not `wheel`. The mechanism is identical — group membership grants sudo access via `/etc/sudoers`.
+
+> ⚠️ Do not lock root before verifying the user can sudo. Doing it in the wrong order will lock you out of your own server.
+
+```bash
+usermod -aG sudo "$VPS_USER"
+```
+
+---
+
+#### 2.3 — Configure sudoers to use root's password
+
+By default, `sudo` authenticates the invoking user — it would ask for the user's password, which does not exist. `Defaults:$VPS_USER rootpw` in a drop-in sudoers file makes sudo prompt for root's password instead. This means `sudo <command>` prompts for root's password, and root SSH access remains blocked by `PermitRootLogin no` (Section 3) as a second independent layer.
+
+The drop-in is written to `/etc/sudoers.d/$VPS_USER` and validated with `visudo -c` before installation.
+
+```bash
+cat > /tmp/sudoers-user << EOF
+# ${VPS_USER}: full sudo access, authenticated with root's password
+Defaults:${VPS_USER} rootpw
+%sudo ALL=(ALL:ALL) ALL
+EOF
+
+# Validate syntax before installing:
+visudo -c -f /tmp/sudoers-user
+# Expected: /tmp/sudoers-user: parsed OK
+
+install -m 0440 /tmp/sudoers-user "/etc/sudoers.d/${VPS_USER}"
+rm /tmp/sudoers-user
+
+# Verify the default sudoers file still has %sudo enabled:
 grep -E '^\s*%sudo' /etc/sudoers
-# Expected output: %sudo   ALL=(ALL:ALL)    ALL
-# If commented out, uncomment it (never edit /etc/sudoers directly):
-# visudo
+# Expected: %sudo   ALL=(ALL:ALL)    ALL
+```
 
-# --- 2.4 Set umask 027 system-wide ---
+---
+
+#### 2.4 — Set `umask 027` system-wide
+
+The default `umask 022` creates files readable by all users. `027` restricts new files to owner read/write, group read-only, and no access for others. Applied system-wide via `/etc/profile` — covers all login shells. Per-user `.zshrc` entries are added in step 2.8 to also cover interactive non-login zsh sessions.
+
+```bash
 echo 'umask 027' >> /etc/profile
-# Covers all login shells (bash and zsh)
-# Per-user .zshrc entries added in step 2.8 after oh-my-zsh creates the files
+```
 
-# --- 2.5 Set zsh as default shell for dan and root ---
+---
+
+#### 2.5 — Set zsh as default shell for user and root
+
+`chsh -s /bin/zsh` updates `/etc/passwd` for both accounts. Root's shell is set here even though the account password is locked in step 2.9 — when you access root via `sudo -i` or `sudo su`, you get root's configured shell.
+
+```bash
 chsh -s /bin/zsh root
-chsh -s /bin/zsh dan
-# Verify:
-grep -E '^(root|dan):' /etc/passwd | cut -d: -f1,7
-# Expected: root:/bin/zsh and dan:/bin/zsh
+chsh -s /bin/zsh "$VPS_USER"
 
-# --- 2.6 Install oh-my-zsh for root ---
+# Verify:
+grep -E "^(root|${VPS_USER}):" /etc/passwd | cut -d: -f1,7
+# Expected: root:/bin/zsh and <VPS_USER>:/bin/zsh
+```
+
+---
+
+#### 2.6 — Install oh-my-zsh for root
+
+oh-my-zsh is installed via its official `install.sh` script fetched over HTTPS from GitHub. The `--unattended` flag suppresses interactive prompts and does not change the default shell (handled in step 2.5) or launch zsh immediately.
+
+```bash
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" \
   "" --unattended
-# Installs to /root/.oh-my-zsh and creates /root/.zshrc
+
 # Verify:
 ls /root/.oh-my-zsh/
+```
 
-# --- 2.7 Install oh-my-zsh for dan ---
-su - dan
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" \
+---
+
+#### 2.7 — Install oh-my-zsh for the user
+
+We use `sudo -u` with `HOME` explicitly set rather than `su - $VPS_USER` to avoid the subshell/exit problem in a scripted context. This ensures oh-my-zsh is correctly owned by and configured for the user.
+
+```bash
+sudo -u "$VPS_USER" HOME="/home/${VPS_USER}" \
+  sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" \
   "" --unattended
-exit
-# Installs to /home/dan/.oh-my-zsh and creates /home/dan/.zshrc
-# Verify:
-ls /home/dan/.oh-my-zsh/
 
-# --- 2.8 Configure fino-time theme and umask for both users ---
+# Verify:
+ls "/home/${VPS_USER}/.oh-my-zsh/"
+```
+
+---
+
+#### 2.8 — Configure `fino-time` theme and `umask` for both users
+
+`fino-time` is a built-in oh-my-zsh theme — no additional download needed. We also append `umask 027` to each `.zshrc` to cover interactive non-login zsh sessions where `/etc/profile` is not sourced.
+
+```bash
 # Root:
 sed -i 's/^ZSH_THEME=.*/ZSH_THEME="fino-time"/' /root/.zshrc
 echo 'umask 027' >> /root/.zshrc
 
-# Dan:
-sed -i 's/^ZSH_THEME=.*/ZSH_THEME="fino-time"/' /home/dan/.zshrc
-echo 'umask 027' >> /home/dan/.zshrc
+# User:
+sed -i 's/^ZSH_THEME=.*/ZSH_THEME="fino-time"/' "/home/${VPS_USER}/.zshrc"
+echo 'umask 027' >> "/home/${VPS_USER}/.zshrc"
 
 # Verify:
-grep 'ZSH_THEME' /root/.zshrc /home/dan/.zshrc
+grep 'ZSH_THEME' /root/.zshrc "/home/${VPS_USER}/.zshrc"
 # Expected: ZSH_THEME="fino-time" in both files
+```
 
-# --- VERIFY dan can sudo BEFORE locking root ---
-# Open a second SSH session and run: sudo whoami
+---
+
+#### 2.9 — Set a known root password and block root login at the SSH level
+
+Root login is blocked at the SSH layer by `PermitRootLogin no` in `sshd_config` (Section 3) — not by locking the password hash. The password hash must remain **unlocked** (`$y$...` without a `!` prefix).
+
+`sudo` with `Defaults rootpw` authenticates by calling `pam_unix` to verify the root password hash. `pam_unix` treats the `!` prefix from `passwd -l` as a locked account and rejects the password even when it is correct. **Do not run `passwd -l root`** — it breaks sudo authentication.
+
+**Do not use `passwd root` interactively either.** Terminal encoding issues silently mangle password characters — `passwd` reports success but the stored hash does not match what you typed. Use `chpasswd` which reads from stdin and bypasses terminal encoding entirely.
+
+```bash
+# Step A: Set a strong known root password via chpasswd (not passwd)
+# Type your password once at the prompt — hidden, no confirmation:
+read -rs ROOT_PASS && echo "root:${ROOT_PASS}" | chpasswd
+unset ROOT_PASS
+
+# Verify the hash was written correctly (must NOT start with !):
+grep '^root:' /etc/shadow | cut -d: -f2 | cut -c1-3
+# Expected: '$y$' — hash present, no lock prefix
+
+# Step B: VERIFY the user can sudo BEFORE continuing
+# Open a second SSH session as the user and run: sudo whoami
+# You will be prompted for root's password (set in Step A)
 # Expected output: root
-# Only proceed to 2.9 after confirming this works
+```
 
-# --- 2.9 Lock root account ---
-passwd -l root
-# Verify (locked hash starts with '!'):
-grep root /etc/shadow | cut -d: -f2
+> **Root login is blocked by `PermitRootLogin no` in `sshd_config` (Section 3).** Do not run `passwd -l root` — it prevents sudo from authenticating even with the correct password, because `pam_unix` rejects the `!` prefix regardless of context.
 
-# --- 2.10 PAM faillock hardening ---
-# Check if faillock is already present (may have been applied by pam-auth-update):
-grep -l 'pam_faillock' /etc/pam.d/common-auth /etc/pam.d/common-account 2>/dev/null
-# If both files are listed — faillock is already wired in. Skip to faillock.conf below.
-# If either file is missing from the output — add faillock manually:
+> **If sudo fails:** The most common cause is terminal encoding mangling the password during `read -rs` entry. Try again with an alphanumeric-only password (letters and digits, no symbols) to rule out encoding issues. If faillock has locked the root account after repeated attempts, reset it: `faillock --user root --reset`.
 
+---
+
+#### 2.10 — Harden PAM with `pam_faillock`
+
+Debian 13's `libpam-modules` (1.7.0-5) does not ship a `pam-auth-update` profile for `faillock` — `pam-auth-update` cannot manage it automatically. Manual `sed` insertion is required, but it must also update the `success=N` skip count on the `pam_unix` line.
+
+The default Debian `common-auth` has `[success=1 default=ignore]` on `pam_unix.so` — meaning "on successful auth, skip the next 1 module." When `pam_faillock authfail` is inserted after `pam_unix`, the next module to skip becomes `authfail`. The `success=1` skips it and falls through to `pam_deny`, which always fails — breaking every authentication unconditionally. The fix is updating `success=1` to `success=2` before inserting the `authfail` line.
+
+After correct insertion, `common-auth` must contain:
+```
+auth    required                    pam_faillock.so preauth
+auth    [success=2 default=ignore]  pam_unix.so nullok
+auth    [default=die]               pam_faillock.so authfail
+auth    requisite                   pam_deny.so
+auth    required                    pam_permit.so
+```
+
+Since the user has no password, faillock only triggers on sudo authentication failures (wrong root password). SSH key auth bypasses PAM password stacks entirely.
+
+```bash
+# Check current state:
+grep -n 'pam_faillock\|pam_unix' /etc/pam.d/common-auth
+
+# Only insert if faillock is not already present:
 if ! grep -q 'pam_faillock' /etc/pam.d/common-auth; then
-  # Add preauth line before pam_unix.so:
-  sed -i '/^auth.*pam_unix\.so/i auth\trequired\t\t\tpam_faillock.so preauth' \
+  # Insert preauth line before pam_unix:
+  sed -i '/^auth.*pam_unix\.so/i auth\trequired\t\t\t\tpam_faillock.so preauth' \
     /etc/pam.d/common-auth
-  # Add authfail line after pam_unix.so:
-  sed -i '/^auth.*pam_unix\.so/a auth\t[default=die]\t\t\tpam_faillock.so authfail' \
+
+  # CRITICAL: increment success count from 1 to 2 BEFORE inserting authfail.
+  # success=1 would skip authfail and land on pam_deny — breaking all auth.
+  # success=2 skips authfail on success and lands on pam_permit — correct.
+  sed -i 's/\[success=1 default=ignore\]/[success=2 default=ignore]/' \
+    /etc/pam.d/common-auth
+
+  # Insert authfail line after pam_unix:
+  sed -i '/^auth.*pam_unix\.so/a auth\t[default=die]\t\t\t\tpam_faillock.so authfail' \
     /etc/pam.d/common-auth
 fi
 
@@ -359,100 +535,168 @@ if ! grep -q 'pam_faillock' /etc/pam.d/common-account; then
   echo 'account required    pam_faillock.so' >> /etc/pam.d/common-account
 fi
 
-# Configure faillock parameters:
-sed -i 's/^#\s*deny\s*=.*/deny = 5/'                  /etc/security/faillock.conf
-sed -i 's/^#\s*unlock_time\s*=.*/unlock_time = 900/'  /etc/security/faillock.conf
-sed -i 's/^#\s*fail_interval\s*=.*/fail_interval = 900/' /etc/security/faillock.conf
-# Verify:
-grep -E 'deny|unlock_time|fail_interval' /etc/security/faillock.conf
+# Verify the stack — success= MUST be 2, not 1:
+grep -A6 'faillock\|pam_unix\|pam_deny\|pam_permit' /etc/pam.d/common-auth
 
-# --- 2.11 Password quality policy ---
+# Configure faillock parameters (5 failed attempts → 15 min lockout):
+sed -i 's/^#\s*deny\s*=.*/deny = 5/'                         /etc/security/faillock.conf
+sed -i 's/^#\s*unlock_time\s*=.*/unlock_time = 900/'         /etc/security/faillock.conf
+sed -i 's/^#\s*fail_interval\s*=.*/fail_interval = 900/'     /etc/security/faillock.conf
+
+# Prevent faillock from locking the root account itself.
+# Without this, repeated wrong sudo password attempts lock root out of PAM
+# entirely — including the hash lookup sudo needs to authenticate.
+sed -i 's/^#\s*even_deny_root\s*=.*/even_deny_root = false/' /etc/security/faillock.conf
+grep -q '^even_deny_root' /etc/security/faillock.conf || \
+  echo 'even_deny_root = false' >> /etc/security/faillock.conf
+
+# Verify:
+grep -E '^(deny|unlock_time|fail_interval|even_deny_root)' /etc/security/faillock.conf
+```
+
+> **PAM note:** If `pam-auth-update --force` is called by a future package install, it will overwrite `common-auth` and remove the manually added faillock lines. After any `pam-auth-update` run, re-verify with:
+> ```bash
+> grep -A6 'faillock\|pam_unix\|pam_deny\|pam_permit' /etc/pam.d/common-auth
+> # If faillock lines are gone or success= reverted to 1, re-run the insertion block above
+> ```
+
+> **Unlocking a locked account:**
+> ```bash
+> faillock --user "$VPS_USER" --reset
+> ```
+
+---
+
+#### 2.11 — Enforce password quality policy via `pwquality`
+
+`libpam-pwquality` was installed in Section 1.5. Enforces password complexity when setting or changing passwords via `passwd`. Applies to root's password set in step 2.9 and any future password changes.
+
+```bash
 sed -i 's/^#\s*minlen\s*=.*/minlen = 12/'       /etc/security/pwquality.conf
 sed -i 's/^#\s*minclass\s*=.*/minclass = 3/'    /etc/security/pwquality.conf
 sed -i 's/^#\s*maxrepeat\s*=.*/maxrepeat = 3/'  /etc/security/pwquality.conf
 sed -i 's/^#\s*usercheck\s*=.*/usercheck = 1/'  /etc/security/pwquality.conf
+
 # Verify:
 grep -vE '^#|^$' /etc/security/pwquality.conf
 ```
 
-> ⚠️ **Critical order warning:** Always confirm `dan` can `sudo whoami` successfully in a separate session before running step 2.9. A locked root account with a broken sudo setup means a full OS reinstall.
-
-> **PAM note:** If a future `pam-auth-update --force` run overwrites `/etc/pam.d/common-auth`, the manually added faillock lines may be replaced. After any `pam-auth-update` run, re-verify with `grep pam_faillock /etc/pam.d/common-auth`.
+---
 
 ### [Back to Top](#section-order)
 
 ---
 
+
 ## Section 3 — Secure Shell (SSH)
 
-> Goal: Make SSH access as narrow as possible. Only `dan` can connect, only via key authentication, on a non-standard port, with all unnecessary SSH features disabled and brute-force attempts automatically banned.
+**Goal:** Make SSH access as narrow as possible. Only the rootless user can connect, only via key authentication, on a non-standard port, with all unnecessary SSH features disabled and brute-force attempts automatically banned.
+
+> ⚠️ Complete Sections 1 and 2 fully before starting this section. In particular, the user must exist with an authorized key deployed (step 3.2) before sshd is restarted (step 3.7) — otherwise you will be locked out.
+
+**Note on AppArmor and the SSH port:** No AppArmor port registration is needed. Unlike SELinux, AppArmor's sshd profile does not restrict which port the daemon binds to. Changing the SSH port requires no AppArmor policy update.
+
+**Note on `UsePAM yes`:** The hardened `sshd_config` must include `UsePAM yes`. On Debian 13, OpenSSH is compiled with PAM support and requires `UsePAM yes` to run PAM account and session modules after key authentication. Without it, a key is accepted cryptographically but the session setup fails — producing `Permission denied (publickey)` even when the correct key is presented.
+
+**Note on provider cloud-init drop-in:** This provider image ships `/etc/ssh/sshd_config.d/50-cloud-init.conf`. The default `sshd_config` processes this via an `Include /etc/ssh/sshd_config.d/*.conf` directive. Since the hardened `sshd_config` written here does not include that directive, the drop-in becomes orphaned — it is no longer loaded. It is moved to a backup explicitly to keep the system clean.
 
 ### Checklist
 
 - [ ] **3.1** Generate an SSH key pair on your local machine
-- [ ] **3.2** Deploy public key manually to `dan`'s authorized keys
-- [ ] **3.3** Create SSH warning banner at `/etc/ssh/banner`
-- [ ] **3.4** Harden `sshd_config`
-- [ ] **3.5** Configure `fail2ban` for SSH
-- [ ] **3.6** Open port 32022 in firewall
-- [ ] **3.7** Restart `sshd` and verify new connection before closing current session
+- [ ] **3.2** Deploy public key to the user's authorized keys — verify ownership
+- [ ] **3.3** Create SSH warning banner
+- [ ] **3.4** Remove provider cloud-init SSH drop-in, then write hardened `sshd_config`
+- [ ] **3.5** Start `firewalld` and open the SSH port
+- [ ] **3.6** Configure `fail2ban` for SSH
+- [ ] **3.7** Configure local SSH client (`~/.ssh/config`)
+- [ ] **3.8** Pre-flight ownership check, then restart `sshd` and verify new connection
 
-**Note on AppArmor and port 32022:** No AppArmor port registration is needed. Unlike SELinux, which enforces a strict type label (`ssh_port_t`) on every TCP port sshd is allowed to bind, AppArmor's sshd profile does not restrict which port the daemon binds to. Changing the SSH port to 32022 requires no AppArmor policy update — only the firewall and sshd_config changes below.
+### Steps
 
-### Rationale
+---
 
-**3.1 & 3.2 — Key pair and manual deployment**  
-Key authentication is non-negotiable. A private key is computationally infeasible to brute-force. `ed25519` is the correct algorithm choice: smaller, faster, and more secure than RSA 4096.
+#### 3.1 — Generate an SSH key pair
 
-**3.3 — SSH warning banner**  
-The banner is displayed to every client before authentication occurs. It establishes the legal basis for action against unauthorized users and makes clear the system is monitored. Permissions are set to `644` — it must be world-readable for `sshd` to serve it to unauthenticated connections.
-
-**3.4 — `sshd_config` hardening**  
-The OpenSSH default config is permissive for compatibility. Key changes: non-standard port, key-only auth, explicit user allowlist, tight algorithm selection, disabled unused forwarding features.
-
-**3.5 — `fail2ban`**  
-Even on a non-standard port with key-only auth, automated scanners will find port 32022 eventually. `fail2ban` watches `sshd` logs via systemd journal and bans IPs that exceed the failed attempt threshold via a `firewalld` rich rule. Configuration: 3 failed attempts → 1 hour ban. The `firewallcmd-rich-rules` banaction works identically on Debian when firewalld is the active firewall manager.
-
-**3.6 — Open firewall port before restarting SSH**  
-If you restart `sshd` with port 32022 configured but the firewall doesn't allow it yet, you lock yourself out. Firewall rule comes first, always.
-
-**3.7 — Verify before closing session**  
-Never close your existing SSH session until you've confirmed a new session connects successfully on port 32022. If anything is misconfigured, your old session is the recovery lifeline.
-
-> **Optional escalation — Port Knocking:** Port knocking keeps SSH completely invisible to scanners until a specific sequence of ports is knocked in order. A daemon (`knockd`) then temporarily opens the SSH port for your IP only. This adds a lockout risk if the sequence or config is lost, so it is not prescribed in this guide but noted as an available escalation.
-
-### Scriptable Commands
+Run this on your **local machine**, not the server. `ed25519` is the correct algorithm choice: smaller, faster, and more secure than RSA 4096.
 
 ```bash
-# --- 3.1 Generate key pair (run on your LOCAL machine, not the server) ---
-ssh-keygen -t ed25519 -C "dan@your-hostname"
+# Run on your LOCAL machine:
+ssh-keygen -t ed25519 -C "${VPS_USER}@${VPS_HOSTNAME}"
 # Keys saved to: ~/.ssh/id_ed25519 (private) and ~/.ssh/id_ed25519.pub (public)
+```
 
-# --- 3.2 Deploy public key manually ---
+---
+
+#### 3.2 — Deploy public key to the user's authorized keys
+
+The `.ssh` directory and `authorized_keys` file must be owned by the user, not root. OpenSSH's `StrictModes yes` (the default) silently rejects authentication when ownership is wrong — the connection drops at preauth with no useful log entry at `INFO` loglevel. The `chown` and ownership verification at the end of this step are mandatory, not optional.
+
+```bash
 # Run on the SERVER as root:
-mkdir -p /home/dan/.ssh
-chmod 700 /home/dan/.ssh
-nano /home/dan/.ssh/authorized_keys
-# Paste your id_ed25519.pub content, save and exit
-chmod 600 /home/dan/.ssh/authorized_keys
-chown -R dan:dan /home/dan/.ssh
 
-# --- 3.3 Create SSH warning banner ---
+# Guide variables — re-export if reconnected since initial setup
+# export VPS_USER="dan"
+
+mkdir -p "/home/${VPS_USER}/.ssh"
+chmod 700 "/home/${VPS_USER}/.ssh"
+nano "/home/${VPS_USER}/.ssh/authorized_keys"
+# Paste your id_ed25519.pub content, save and exit
+chmod 600 "/home/${VPS_USER}/.ssh/authorized_keys"
+
+# CRITICAL: transfer ownership to the user — sshd will silently reject
+# the key if .ssh/ or authorized_keys is owned by root
+chown -R "${VPS_USER}:${VPS_USER}" "/home/${VPS_USER}/.ssh"
+
+# Verify ownership and permissions before continuing:
+ls -la "/home/${VPS_USER}/.ssh/"
+# Expected:
+# drwx------ 2 <VPS_USER> <VPS_USER> ... .ssh/
+# -rw------- 1 <VPS_USER> <VPS_USER> ... authorized_keys
+
+# Verify the key fingerprint matches your local public key:
+ssh-keygen -lf "/home/${VPS_USER}/.ssh/authorized_keys"
+# Compare this fingerprint against: ssh-keygen -lf ~/.ssh/id_ed25519.pub (on your local machine)
+```
+
+> ⚠️ **Do not proceed to step 3.3 until the ownership verification above shows `<VPS_USER>:<VPS_USER>` on both entries.** A root-owned `.ssh` directory causes silent authentication failure after sshd is restarted — the only symptom is `Connection closed by authenticating user ... [preauth]` in the auth log, with no indication of the actual cause.
+
+---
+
+#### 3.3 — Create SSH warning banner
+
+The banner is displayed to every client before authentication occurs. It establishes the legal basis for action against unauthorized users. Must be `644` — world-readable so `sshd` can serve it to unauthenticated connections.
+
+```bash
 cat > /etc/ssh/banner << 'EOF'
 WARNING: Unauthorized access to this system is prohibited.
 All activity is monitored and logged.
 EOF
 
 chmod 644 /etc/ssh/banner
-# Verify:
 cat /etc/ssh/banner
+```
 
-# --- 3.4 Harden sshd_config ---
+---
+
+#### 3.4 — Remove provider drop-in and write hardened `sshd_config`
+
+Key settings in the hardened config: non-standard port, key-only auth, `KbdInteractiveAuthentication no` (explicitly required — omitting this line leaves it at the compiled default `yes` on Debian 13, independently of `PasswordAuthentication`), `UsePAM yes` (required for PAM session setup after key auth), explicit user allowlist, disabled forwarding features, and restricted ciphers/MACs/KexAlgorithms.
+
+```bash
+# Guide variables — re-export if reconnected since initial setup
+# export VPS_USER="dan"
+# export VPS_SSH_PORT="32022"
+
 cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
 
-cat > /etc/ssh/sshd_config << 'EOF'
+# Move the cloud-init drop-in to a backup:
+[ -f /etc/ssh/sshd_config.d/50-cloud-init.conf ] && \
+  mv /etc/ssh/sshd_config.d/50-cloud-init.conf \
+     /etc/ssh/sshd_config.d/50-cloud-init.conf.bak
+
+cat > /etc/ssh/sshd_config << EOF
 # --- Port & Protocol ---
-Port 32022
+Port ${VPS_SSH_PORT}
 AddressFamily any
 
 # --- Banner ---
@@ -461,6 +705,7 @@ Banner /etc/ssh/banner
 # --- Authentication ---
 PermitRootLogin no
 PasswordAuthentication no
+KbdInteractiveAuthentication no
 PubkeyAuthentication yes
 AuthorizedKeysFile .ssh/authorized_keys
 PermitEmptyPasswords no
@@ -468,7 +713,13 @@ MaxAuthTries 3
 LoginGraceTime 30
 
 # --- Access Control ---
-AllowUsers dan
+AllowUsers ${VPS_USER}
+
+# --- PAM ---
+# UsePAM must be yes on Debian 13.
+# OpenSSH requires it to run PAM account and session modules after key
+# authentication. Without it the session setup fails with Permission denied.
+UsePAM yes
 
 # --- Features (all disabled) ---
 X11Forwarding no
@@ -490,16 +741,41 @@ EOF
 # Verify config syntax before anything else:
 sshd -t
 # No output = no errors. Fix any errors before proceeding.
+```
 
-# No AppArmor port registration needed.
-# AppArmor's sshd profile does not restrict port binding —
-# port 32022 requires no policy update.
+---
 
-# --- 3.5 Configure fail2ban for SSH ---
-cat > /etc/fail2ban/jail.d/sshd.local << 'EOF'
+#### 3.5 — Start `firewalld` and open the SSH port
+
+`firewalld` must be running before `fail2ban` starts in the next step. `fail2ban` uses `firewallcmd-rich-rules` as its banaction — if `firewalld` is not active when a ban fires, the ban fails silently.
+
+```bash
+# Guide variables — re-export if reconnected since initial setup
+# export VPS_SSH_PORT="32022"
+
+systemctl enable --now firewalld
+firewall-cmd --permanent --add-port="${VPS_SSH_PORT}/tcp"
+firewall-cmd --reload
+
+# Verify:
+firewall-cmd --list-ports
+# Expected: <VPS_SSH_PORT>/tcp
+```
+
+---
+
+#### 3.6 — Configure `fail2ban` for SSH
+
+Even on a non-standard port with key-only auth, automated scanners will eventually find the port. `fail2ban` watches `sshd` logs via systemd journal (`backend = systemd` is correct — `sshd` logs via journald on Debian 13) and bans offending IPs via `firewalld` rich rules. Configuration: 3 failed attempts → 1 hour ban.
+
+```bash
+# Guide variables — re-export if reconnected since initial setup
+# export VPS_SSH_PORT="32022"
+
+cat > /etc/fail2ban/jail.d/sshd.local << EOF
 [sshd]
 enabled   = true
-port      = 32022
+port      = ${VPS_SSH_PORT}
 filter    = sshd
 backend   = systemd
 maxretry  = 3
@@ -509,131 +785,474 @@ banaction = firewallcmd-rich-rules
 EOF
 
 systemctl enable --now fail2ban
+
 # Verify:
 fail2ban-client status sshd
+```
 
-# --- 3.6 Open port 32022 in firewall ---
-systemctl enable --now firewalld
-firewall-cmd --permanent --add-port=32022/tcp
-firewall-cmd --reload
-# Verify:
-firewall-cmd --list-ports
+---
 
-# --- 3.7 Restart sshd ---
+#### 3.7 — Configure local SSH client
+
+Before restarting sshd, configure your local `~/.ssh/config` so the first connection attempt after the restart succeeds cleanly. With `MaxAuthTries 3` in the hardened config, SSH agents that offer multiple keys sequentially (such as 1Password) will exhaust the attempt limit before the correct key is tried — resulting in `Too many authentication failures` even when the right key is available.
+
+`IdentitiesOnly yes` tells SSH to offer only the specified key and ignore everything else the agent provides. For keys stored in 1Password with no private key file on disk, use the `.pub` file as the `IdentityFile` hint — the agent sees the public key reference and knows which key to sign with.
+
+```
+# Add to ~/.ssh/config on your LOCAL machine:
+
+Host <VPS_HOSTNAME>
+    Hostname <your-server-ip>
+    User <VPS_USER>
+    Port <VPS_SSH_PORT>
+    IdentityFile ~/.ssh/your-key       # private key file, or .pub as hint for agent
+    IdentitiesOnly yes
+```
+
+For 1Password specifically: if the private key lives only in 1Password (no local private key file), use the `.pub` file as the hint and ensure `IdentityAgent` points to the 1Password agent socket, not `none`:
+
+```
+Host <VPS_HOSTNAME>
+    Hostname <your-server-ip>
+    User <VPS_USER>
+    Port <VPS_SSH_PORT>
+    IdentityFile ~/.ssh/your-key.pub   # .pub hint — 1Password agent does the signing
+    IdentitiesOnly yes
+    # Do NOT set IdentityAgent none here — the agent must be active to sign
+```
+
+---
+
+#### 3.8 — Pre-flight check, then restart `sshd`
+
+Verify ownership one final time before restarting sshd. A root-owned `authorized_keys` file causes silent preauth failure — there is no obvious error message, making it extremely hard to diagnose after the fact.
+
+```bash
+# Pre-flight: confirm authorized_keys ownership is correct
+ls -la "/home/${VPS_USER}/.ssh/"
+# Both entries MUST show <VPS_USER>:<VPS_USER> ownership
+# If either shows root:root — fix it first: chown -R "${VPS_USER}:${VPS_USER}" "/home/${VPS_USER}/.ssh"
+
+# Pre-flight: confirm sshd config syntax is still valid
+sshd -t
+# No output = no errors
+
+# Restart sshd:
 systemctl restart sshd
 systemctl status sshd
 
-# ⚠️  KEEP THIS SESSION OPEN
-# Open a NEW terminal and test:
-# ssh -p 32022 -i ~/.ssh/id_ed25519 dan@your-server-ip
-# Banner should appear before the key prompt
-# Only close this session after confirming the new connection works
-
 # Post-restart: confirm AppArmor has no sshd denials:
-journalctl -k --grep='apparmor.*DENIED.*sshd' --since boot
+journalctl -k --grep='apparmor.*DENIED.*sshd' --since=boot
 # Expected: no output
 ```
 
-> ⚠️ **Critical order:** Firewall port (3.6) → restart `sshd` (3.7) → verify new session → close old session.
+> ⚠️ **Keep this session open.** Open a NEW terminal and test the connection using the `~/.ssh/config` entry configured in step 3.7:
+> ```bash
+> ssh <VPS_HOSTNAME>
+> ```
+> The banner should appear before the key prompt. Only close this root session after the new connection succeeds and you have confirmed `sudo whoami` returns `root` from the new session.
+
+---
 
 ### [Back to Top](#section-order)
 
 ---
 
-## Section 4 — Firewall
 
-> Goal: Default-deny all inbound traffic. Only explicitly permitted ports are open. This section establishes the baseline firewall state — service-specific ports are added in their respective service guides layered on top of this one.
+## Section 4 — Network & Firewall
+
+**Goal:** Migrate the network stack from `ifupdown`/`networking` (Debian's default) to `systemd-networkd`, mirror the existing network configuration exactly, then harden the resulting setup. A stable, predictable network stack managed by systemd is a prerequisite for consistent firewall and audit behaviour.
+
+> ⚠️ This section carries the highest risk of network loss of any section in this guide. Take a VPS provider snapshot before starting. Have the provider's out-of-band console ready in case SSH becomes unreachable. Every step includes a recovery path.
 
 ### Checklist
 
-- [ ] **4.1** Verify `firewalld` is running and set to start on boot
-- [ ] **4.2** Confirm the active zone is `public` and your interface is assigned to it
-- [ ] **4.3** Remove default permitted services from the `public` zone
-- [ ] **4.4** Confirm port 32022 is the only open port
-- [ ] **4.5** Enable logging of denied traffic
-- [ ] **4.6** Reload and verify final firewall state including IPv6 coverage
+- [ ] **4.1** Verify `firewalld` is running and confirm the active zone
+- [ ] **4.2** Remove default permitted services from the `public` zone
+- [ ] **4.3** Confirm the SSH port is the only open port
+- [ ] **4.4** Enable denial logging
+- [ ] **4.5** Detect the current network configuration — IPv4 and IPv6
+- [ ] **4.6** Migrate to `systemd-networkd` — mirror existing IPv4 and IPv6 config
+- [ ] **4.7** Verify network connectivity after migration
+- [ ] **4.8** Disable and mask legacy networking services
+- [ ] **4.9** Harden `systemd-networkd` — configure DNSSEC, disable LLMNR and mDNS
+- [ ] **4.10** Reload and verify final network and firewall state
 
-### Rationale
+### Steps
 
-**4.1 — `firewalld` running state**  
-`firewalld` was enabled in Section 3.5 as a prerequisite for SSH. This step confirms it's active and boot-enabled before further rule changes.
+---
 
-**4.2 — Active zone**  
-`firewalld` uses zones to group interfaces with a trust level. The `public` zone assumes no trust of other hosts — correct for an internet-facing VPS.
+#### 4.1 — Verify `firewalld` and confirm the active zone
 
-**Default zone policies in `public`:**
-- **Input:** `DROP` — inbound traffic is dropped unless explicitly permitted
-- **Output:** `ACCEPT` — all outbound traffic is allowed by default
-- **Forward:** `DROP` — packet forwarding between interfaces is dropped
-
-**4.3 — Remove default services**  
-`firewalld`'s default `public` zone on Debian may ship with `ssh` and `dhcpv6-client` permitted — VPS provider images vary. The `ssh` service covers port 22 which we have replaced with port 32022. Remove all defaults and keep only what this guide explicitly adds. Removal commands use `2>/dev/null || true` because the services may not be present in all provider images.
-
-**4.4 — Port 32022 only**  
-After removing defaults, port 32022/tcp from Section 3.6 should be the only open inbound path.
-
-**4.5 — Denial logging**  
-Enabling denial logging gives visibility into what's being blocked — useful during initial setup and periodic audits.
-
-**4.6 — IPv6 coverage**  
-`firewalld` manages both `iptables`/`ip6tables` (or `nftables`) automatically — the same zone rules apply to both stacks. On Debian 13, `firewalld` uses the `nftables` backend by default.
-
-### Scriptable Commands
+`firewalld` was enabled in Section 3.5 as a prerequisite for `fail2ban`. This step confirms it is active and boot-enabled before further rule changes. The `public` zone is correct for an internet-facing VPS — it assumes no trust of other hosts and defaults to drop for inbound traffic.
 
 ```bash
-# --- 4.1 Verify firewalld is running ---
 systemctl enable --now firewalld
 systemctl status firewalld
 
-# --- 4.2 Confirm active zone and interface assignment ---
 firewall-cmd --get-active-zones
-# Expected output example:
-# public
-#   interfaces: eth0
+# Expected: public with your network interface listed beneath it
 
 # If your interface is not in the public zone, assign it:
-# firewall-cmd --permanent --zone=public --change-interface=eth0
+# firewall-cmd --permanent --zone=public --change-interface=<interface>
 # firewall-cmd --reload
+```
 
-# --- 4.3 Remove default permitted services ---
-# Check what is currently permitted (varies by VPS provider):
+---
+
+#### 4.2 — Remove default permitted services
+
+`firewalld`'s default `public` zone on Debian may ship with `ssh` and `dhcpv6-client` permitted — VPS provider images vary. The `ssh` service covers port 22, which is replaced by `VPS_SSH_PORT`. All removal commands use `2>/dev/null || true` since these services may not be present on all images.
+
+```bash
+# Inspect what is currently permitted:
 firewall-cmd --permanent --zone=public --list-services
 
 firewall-cmd --permanent --zone=public --remove-service=cockpit       2>/dev/null || true
 firewall-cmd --permanent --zone=public --remove-service=dhcpv6-client 2>/dev/null || true
 firewall-cmd --permanent --zone=public --remove-service=ssh           2>/dev/null || true
-# ssh service covers port 22 — we use port 32022 exclusively (step 3.6)
 
 # Verify nothing else is permitted:
 firewall-cmd --permanent --zone=public --list-services
 # Expected: (empty)
+```
 
-# --- 4.4 Confirm port 32022 is present (from Section 3.6) ---
+---
+
+#### 4.3 — Confirm only the SSH port is open
+
+After removing default services, the only open inbound path should be the SSH port added in Section 3.5.
+
+```bash
+# Guide variables — re-export if reconnected since initial setup
+# export VPS_SSH_PORT="32022"
+
 firewall-cmd --permanent --zone=public --list-ports
-# Expected: 32022/tcp
+# Expected: <VPS_SSH_PORT>/tcp
 
 # If missing for any reason, re-add:
-# firewall-cmd --permanent --zone=public --add-port=32022/tcp
+# firewall-cmd --permanent --zone=public --add-port="${VPS_SSH_PORT}/tcp"
+```
 
-# --- 4.5 Enable denial logging ---
+---
+
+#### 4.4 — Enable denial logging
+
+Denial logging gives visibility into what is being blocked — useful during initial setup and periodic audits. On Debian 13, `firewalld` uses the `nftables` backend and manages both IPv4 and IPv6 stacks automatically.
+
+```bash
 firewall-cmd --set-log-denied=all
-
-# --- 4.6 Reload and verify final state ---
 firewall-cmd --reload
 
-echo "=== Active Zones ==="
-firewall-cmd --get-active-zones
-
-echo "=== Show All Information ==="
+# Verify final firewall state:
 firewall-cmd --zone=public --list-all
+# Expected: services empty, ports showing <VPS_SSH_PORT>/tcp only
+```
 
-# Expected final state:
-# Services  : (empty)
-# Ports     : 32022/tcp
-# Rich rules: (empty)
+---
 
-# Verify firewalld is managing IPv6:
-firewall-cmd --info-zone=public | grep -i ipv
+#### 4.5 — Detect the current network configuration
+
+Before migrating, capture the full existing network configuration — both IPv4 and IPv6. The migration in step 4.6 will mirror everything exactly into `systemd-networkd` format. Do not skip this step.
+
+```bash
+# Identify the active network interface:
+export VPS_IFACE=$(ip route show default | awk '/default/ {print $5}')
+echo "Active interface: $VPS_IFACE"
+
+# Full interface configuration — IPv4 and IPv6:
+ip addr show "$VPS_IFACE"
+echo "---"
+ip route show
+echo "---"
+ip -6 route show
+
+# Current networking config file:
+cat /etc/network/interfaces 2>/dev/null || echo "No /etc/network/interfaces found"
+cat /etc/network/interfaces.d/* 2>/dev/null || echo "No interfaces.d files found"
+
+# Check which network manager is currently active:
+systemctl is-active networking       2>/dev/null
+systemctl is-active systemd-networkd 2>/dev/null
+systemctl is-active NetworkManager   2>/dev/null
+
+# DNS configuration:
+cat /etc/resolv.conf
+```
+
+From the output above, note all values before proceeding to step 4.6:
+
+| Value              | Where to find it                                      | Example                  |
+| ------------------ | ----------------------------------------------------- | ------------------------ |
+| Interface name     | `$VPS_IFACE`                                          | `eth0`                   |
+| IPv4 address/prefix| `ip addr show` — the `inet` line                     | `203.0.113.10/24`        |
+| IPv4 gateway       | `ip route show` — the `default via` line              | `203.0.113.1`            |
+| IPv6 address/prefix| `ip addr show` — the `inet6` line (scope global)     | `2001:db8::1/64`         |
+| IPv6 gateway       | `ip -6 route show` — the `default via` line           | `fe80::1`                |
+| DNS servers        | `/etc/resolv.conf` — the `nameserver` lines           | `1.1.1.1`, `8.8.8.8`    |
+| Config type        | `/etc/network/interfaces` — `dhcp`/`static`           | `static`                 |
+
+> **IPv6 note:** If `ip addr show` shows an `inet6` address with `scope global` — your provider assigns a static IPv6 address. If there is no `scope global` IPv6 address (only `scope link` for link-local) — your provider is IPv4 only and IPv6 can be disabled in the migration.
+
+---
+
+#### 4.6 — Migrate to `systemd-networkd`
+
+This step creates the `.network` file that mirrors the existing configuration exactly — IPv4 and IPv6. Two things are critical here that are not obvious:
+
+**File permissions must be `644`.** systemd-networkd runs as the `systemd-network` user, not root. With `umask 027` set in Section 2.4, any file created by root gets `640` by default — which locks out the `systemd-network` user with `Permission denied`. The file will appear to exist but systemd-networkd will silently ignore it, leaving the interface `unmanaged`.
+
+**Match by MAC address, not interface name.** Using `Name=eth0` in `[Match]` works but generates a warning about unpredictable interface names. Matching by `MACAddress=` is stable across reboots regardless of how the kernel names the interface.
+
+```bash
+# Guide variable — re-export if reconnected:
+# export VPS_IFACE="eth0"   # set to your actual interface name from step 4.5
+
+mkdir -p /etc/systemd/network
+
+# Capture MAC address for stable matching:
+VPS_MAC=$(ip link show "$VPS_IFACE" | awk '/link\/ether/ {print $2}')
+echo "Interface MAC: $VPS_MAC"
+
+# Detect IPv4 config type:
+if grep -q 'dhcp' /etc/network/interfaces 2>/dev/null; then
+  IPV4_TYPE="dhcp"
+else
+  IPV4_TYPE="static"
+fi
+echo "IPv4 config type: $IPV4_TYPE"
+
+# Detect IPv6 — check for a global-scope address on this interface:
+IPV6_ADDR=$(ip -6 addr show "$VPS_IFACE" scope global 2>/dev/null \
+  | awk '/inet6/ {print $2}' | head -1)
+IPV6_GW=$(ip -6 route show default 2>/dev/null \
+  | awk '/default via/ {print $3}' | head -1)
+
+if [ -n "$IPV6_ADDR" ]; then
+  echo "IPv6 detected: ${IPV6_ADDR} via ${IPV6_GW}"
+  IPV6_PRESENT=true
+else
+  echo "No global IPv6 address detected — IPv6 will be disabled"
+  IPV6_PRESENT=false
+fi
+
+# Capture IPv4 static values if needed:
+if [ "$IPV4_TYPE" = "static" ]; then
+  VPS_IP=$(ip addr show "$VPS_IFACE" | awk '/inet / {print $2}')
+  VPS_GW=$(ip route show default | awk '/default/ {print $3}')
+fi
+
+# Capture DNS from current resolv.conf:
+VPS_DNS1=$(awk '/^nameserver/ {print $2}' /etc/resolv.conf | sed -n '1p')
+VPS_DNS2=$(awk '/^nameserver/ {print $2}' /etc/resolv.conf | sed -n '2p')
+
+# Build the .network file:
+{
+  echo "[Match]"
+  echo "MACAddress=${VPS_MAC}"
+  echo ""
+  echo "[Network]"
+
+  if [ "$IPV4_TYPE" = "dhcp" ]; then
+    echo "DHCP=ipv4"
+  else
+    echo "Address=${VPS_IP}"
+    echo "Gateway=${VPS_GW}"
+  fi
+
+  [ -n "$VPS_DNS1" ] && echo "DNS=${VPS_DNS1}"
+  [ -n "$VPS_DNS2" ] && echo "DNS=${VPS_DNS2}"
+
+  if [ "$IPV6_PRESENT" = true ]; then
+    echo "Address=${IPV6_ADDR}"
+    echo "IPv6AcceptRA=no"
+  else
+    echo "IPv6AcceptRA=no"
+    echo "LinkLocalAddressing=ipv6"
+  fi
+
+  if [ "$IPV4_TYPE" = "dhcp" ]; then
+    echo ""
+    echo "[DHCP]"
+    echo "UseDNS=yes"
+    echo "UseRoutes=yes"
+    echo "UseHostname=no"
+  fi
+
+  if [ "$IPV6_PRESENT" = true ] && [ -n "$IPV6_GW" ]; then
+    echo ""
+    echo "[Route]"
+    echo "Gateway=${IPV6_GW}"
+    echo "GatewayOnLink=yes"
+  fi
+
+} > "/etc/systemd/network/10-${VPS_IFACE}.network"
+
+# CRITICAL: set 644 so systemd-network user can read the file.
+# umask 027 from Section 2.4 creates files as 640 — which causes
+# "Permission denied" and leaves the interface permanently unmanaged.
+chmod 644 "/etc/systemd/network/10-${VPS_IFACE}.network"
+
+# Review the generated file before switching:
+echo "=== Generated network config ==="
+cat "/etc/systemd/network/10-${VPS_IFACE}.network"
+ls -la "/etc/systemd/network/10-${VPS_IFACE}.network"
+echo "================================"
+echo "Compare against detected values:"
+echo "  MAC:  ${VPS_MAC}"
+echo "  IPv4: ${VPS_IP:-dhcp} via ${VPS_GW:-dhcp}"
+[ "$IPV6_PRESENT" = true ] && echo "  IPv6: ${IPV6_ADDR} via ${IPV6_GW}"
+echo "  DNS:  ${VPS_DNS1} ${VPS_DNS2}"
+```
+
+> ⚠️ **Review the generated config and verify permissions before proceeding.** The `ls -la` output must show `-rw-r--r--` (644). If it shows `-rw-r-----` (640), run `chmod 644` on the file — systemd-networkd will silently fail to read it otherwise.
+
+---
+
+#### 4.7 — Start `systemd-networkd` and verify it takes ownership
+
+The migration has two distinct phases that must both succeed before the legacy service is touched. Phase 1: start systemd-networkd and confirm it reads the `.network` file and brings the interface to `routable (configured)` state. Phase 2: only then disable the legacy service.
+
+The key distinction is `routable (configured)` vs `routable (unmanaged)`. `unmanaged` means systemd-networkd sees the interface but is not managing it — the `.network` file was not read (usually a permissions problem). `configured` means systemd-networkd owns the interface and will maintain it when the legacy service stops.
+
+```bash
+# Enable and start systemd-networkd and systemd-resolved:
+systemctl enable systemd-networkd systemd-resolved
+systemctl start systemd-networkd systemd-resolved
+
+# Wait 3 seconds for systemd-networkd to process the .network file:
+sleep 3
+
+# Check interface state — MUST show 'routable (configured)' before continuing:
+networkctl status "$VPS_IFACE"
+```
+
+> ⚠️ **Hard gate:** The `State:` line must read `routable (configured)`. If it reads `routable (unmanaged)`:
+> - Check file permissions: `ls -la /etc/systemd/network/` — must be `644`
+> - Check systemd-networkd logs: `journalctl -u systemd-networkd -n 20 --no-pager`
+> - Fix permissions: `chmod 644 /etc/systemd/network/10-${VPS_IFACE}.network`
+> - Then: `systemctl restart systemd-networkd && sleep 3 && networkctl status $VPS_IFACE`
+> - **Do not proceed to step 4.8 until the state shows `configured`.**
+
+```bash
+# Verify connectivity while both network stacks are still running:
+ping -c 3 1.1.1.1
+ping6 -c 3 2606:4700:4700::1111
+
+# Switch DNS resolver to systemd-resolved:
+ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+
+# Verify DNS resolution:
+dig debian.org +short
+```
+
+> **Recovery if anything fails here:** Both networking stacks are still running at this point. Your SSH session is safe. To abort the migration entirely:
+> ```bash
+> systemctl stop systemd-networkd systemd-resolved
+> # Restore original resolv.conf if it was already switched:
+> cp /etc/resolv.conf.bak /etc/resolv.conf 2>/dev/null || true
+> ```
+
+---
+
+#### 4.8 — Disable and mask legacy networking
+
+Only proceed here after step 4.7 confirms `routable (configured)` and both ping tests pass.
+
+When `networking` is stopped, it briefly withdraws its routes before systemd-networkd re-establishes them — this causes a 2–5 second connectivity gap. Your SSH session will drop momentarily and reconnect on its own. This is expected behaviour, not a failure. If connectivity does not return within 30 seconds, use the provider console.
+
+```bash
+# Disable and mask the legacy networking service:
+systemctl disable --now networking
+systemctl mask networking
+
+# NetworkManager if present:
+systemctl disable NetworkManager 2>/dev/null || true
+systemctl stop NetworkManager    2>/dev/null || true
+
+# Wait for systemd-networkd to fully re-establish routes:
+sleep 5
+
+# Verify systemd-networkd is the sole manager:
+networkctl list
+# Expected: eth0 shows 'routable' and 'configured'
+networkctl status "$VPS_IFACE"
+# Expected: State: routable (configured), Network File shows 10-eth0.network
+```
+
+> **Recovery if connectivity does not return after 30 seconds:**
+> ```bash
+> # Via provider console as root:
+> systemctl unmask networking
+> systemctl start networking
+> # Diagnose why systemd-networkd lost ownership, fix, then retry from step 4.7
+> ```
+
+---
+
+#### 4.9 — Harden `systemd-networkd`
+
+With the migration confirmed, apply network hardening. This step configures `systemd-resolved` with privacy-respecting DNS settings and disables network features that are not needed on a single-homed VPS.
+
+```bash
+# Configure systemd-resolved — disable LLMNR and mDNS, enable DNSSEC:
+mkdir -p /etc/systemd/resolved.conf.d/
+
+cat > /etc/systemd/resolved.conf.d/hardening.conf << 'EOF'
+[Resolve]
+# Disable link-local multicast name resolution — not needed on a VPS
+LLMNR=no
+# Disable multicast DNS — not needed on a VPS
+MulticastDNS=no
+# Enable DNSSEC validation where supported by upstream resolver
+DNSSEC=allow-downgrade
+# Do not cache negative results longer than necessary
+NegativeTTL=0
+EOF
+
+# Set 644 — systemd-resolved runs as systemd-resolve user, not root.
+# umask 027 from Section 2.4 would create this as 640, locking it out.
+chmod 644 /etc/systemd/resolved.conf.d/hardening.conf
+
+systemctl restart systemd-resolved
+
+# Verify resolved is running with the new settings:
+resolvectl status
+# Confirm: LLMNR=no, MulticastDNS=no, DNSSEC=allow-downgrade
+```
+
+---
+
+#### 4.10 — Reload and verify final network and firewall state
+
+```bash
+firewall-cmd --reload
+
+echo "=== Network interface state ==="
+networkctl status "$VPS_IFACE"
+
+echo "=== IP configuration ==="
+ip addr show "$VPS_IFACE"
+ip route show
+
+echo "=== DNS resolution ==="
+resolvectl status
+resolvectl query debian.org
+
+echo "=== Firewall state ==="
+firewall-cmd --zone=public --list-all
+# Expected: ports <VPS_SSH_PORT>/tcp only, services empty
+
+echo "=== IPv6 state ==="
+ip -6 addr show "$VPS_IFACE"
+# If IPv6 was detected and migrated: expect a global scope address here
+# If IPv6 was disabled (IPv6AcceptRA=no, no Address= line): expect only link-local
+ip -6 route show
+
+echo "=== Active network services ==="
+systemctl is-active systemd-networkd
+systemctl is-active systemd-resolved
+systemctl is-active networking   # Expected: inactive
 ```
 
 > **Note for service layering:** When adding services on top of this baseline, open only the exact ports needed:
@@ -643,41 +1262,41 @@ firewall-cmd --info-zone=public | grep -i ipv
 > ```
 > Never open port ranges or re-enable removed default services.
 
+> **Recovery procedure if network is lost:** Use the provider's out-of-band console to log in as root, then:
+> ```bash
+> systemctl unmask networking
+> systemctl start networking
+> # Diagnose the systemd-networkd config, fix it, then retry step 4.7
+> ```
+
+---
+
 ### [Back to Top](#section-order)
 
 ---
 
+
 ## Section 5 — Package Integrity
 
-> Goal: Ensure every package on the system comes from a trusted, verified source and that no installed binary has been tampered with since installation.
+**Goal:** Ensure every package on the system comes from a trusted, verified source and that no installed binary has been tampered with since installation.
 
 ### Checklist
 
 - [ ] **5.1** Re-audit APT GPG verification across all active sources
-- [ ] **5.2** Audit enabled repositories — disable any that are unnecessary or untrusted
+- [ ] **5.2** Audit enabled repositories
 - [ ] **5.3** Verify installed packages against shipped checksums via `debsums`
-- [ ] **5.4** Remove orphaned packages
+- [ ] **5.4** Check for held-back or drifted updates via `apt-show-versions`
+- [ ] **5.5** Remove orphaned packages
 
-### Rationale
+### Steps
 
-**5.1 — APT GPG re-audit**  
-APT's GPG enforcement was confirmed before the initial upgrade in Section 1.4. This step performs a full re-audit now that all packages are installed and any provider-injected repos are visible. The goal is to confirm no source has been added with a `[trusted=yes]` override or a missing `Signed-By` field.
+---
 
-**5.2 — Repository audit**  
-Every enabled repository is a potential source of packages installable onto your system. VPS providers typically inject their own agent or monitoring repos into `/etc/apt/sources.list.d/`. Review each one — disable anything you cannot justify.
+#### 5.1 — Re-audit APT GPG verification
 
-**5.3 — `debsums`**  
-`debsums -c` verifies installed files against the MD5 checksums shipped inside each `.deb` package (stored in `/var/lib/dpkg/info/*.md5sums`). This is Debian's equivalent of `rpm -Va`. Discrepancies on config files you modified during setup are expected. Discrepancies on binaries are not — investigate immediately.
-
-Limitation: `debsums` relies on checksums packaged with the `.deb`. If both the binary and the `.deb` checksum were compromised together, `debsums` would not catch it. For a stronger integrity guarantee, AIDE (Section 11) provides ongoing filesystem monitoring from a baseline snapshot taken after hardening.
-
-**5.4 — Orphaned packages**  
-Packages installed as dependencies but no longer required by anything. `apt autoremove` removes them safely.
-
-### Scriptable Commands
+APT's GPG enforcement was confirmed before the initial upgrade in Section 1.4. This step performs a full re-audit now that all packages from Sections 1–4 are installed and any provider-injected repos are fully visible. The goal is confirming no source has a `[trusted=yes]` override or a missing `Signed-By` field.
 
 ```bash
-# --- 5.1 Full GPG re-audit across all sources ---
 # Check for trusted=yes overrides:
 grep -rE 'trusted=yes|allow-unauthenticated|AllowUnauthenticated' \
   /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null
@@ -688,44 +1307,85 @@ ls /etc/apt/trusted.gpg.d/
 # Expected: debian-archive-*.gpg files
 
 # Check global APT config for unauthenticated bypasses:
-grep -r 'AllowUnauthenticated\|allow-unauthenticated' /etc/apt/apt.conf.d/ 2>/dev/null
+grep -r 'AllowUnauthenticated\|allow-unauthenticated' \
+  /etc/apt/apt.conf.d/ 2>/dev/null
 # Expected: no output
+```
 
-# --- 5.2 Audit enabled repositories ---
-# Traditional format (sources.list):
+---
+
+#### 5.2 — Audit enabled repositories
+
+Every enabled repository is a potential source of packages installable onto your system. VPS providers typically inject their own agent or monitoring repos. Review each one — disable anything you cannot justify.
+
+```bash
+# Traditional format:
 grep '^deb' /etc/apt/sources.list 2>/dev/null
-# DEB822 format (debian.sources and any .sources files):
+
+# DEB822 format:
 grep '^URIs:' /etc/apt/sources.list.d/*.sources 2>/dev/null
-# Or use apt directly:
+
+# Full policy view:
 apt-cache policy
 
-# Review each source — disable any you cannot justify:
-# Comment out the line in the relevant file, or delete the .list file:
+# Disable any repo you cannot justify — comment out the relevant line
+# or delete the .list / .sources file:
 # nano /etc/apt/sources.list.d/<provider-repo>.list
+```
 
-# --- 5.3 Verify packages via debsums ---
+---
+
+#### 5.3 — Verify installed packages via `debsums`
+
+`debsums -c` verifies installed files against the MD5 checksums shipped inside each `.deb` package. This is Debian's equivalent of `rpm -Va`. Discrepancies on config files you modified during setup are expected — discrepancies on binaries are not.
+
+```bash
 debsums -c 2>/dev/null | tee /root/debsums-baseline.txt
 
 # Output format: <filepath>  FAILED
 # Expected: modified config files only (anything you changed during setup)
 # Unexpected: modified binaries — investigate immediately
+```
 
-# Full audit including config files (more verbose):
-# debsums -ca 2>/dev/null
+---
 
-# --- 5.4 Remove orphaned packages ---
+#### 5.4 — Check for update drift via `apt-show-versions`
+
+`apt-show-versions` shows the installed version of every package alongside the available version across all configured repos. It identifies packages installed from a repo that has since been removed, packages held back from upgrading, and packages installed from a non-standard source.
+
+```bash
+apt update -qq
+
+# Show all packages not at their latest available version:
+apt-show-versions | grep -v 'uptodate' | tee /root/apt-drift-baseline.txt
+
+# Packages with 'No available version' are orphaned from their source repo.
+# Packages showing an older version have available updates — apply if security-relevant:
+# apt install <package>=<version>
+```
+
+---
+
+#### 5.5 — Remove orphaned packages
+
+Packages installed as dependencies that are no longer required by anything.
+
+```bash
 apt autoremove -y
 ```
 
-> **Baseline note:** Save `/root/debsums-baseline.txt` from step 5.3. After any major change or upgrade, re-run `debsums -c` and diff against this file to spot unexpected modifications. This complements AIDE (Section 11) which provides ongoing monitoring.
+> **Baseline note:** Save `/root/debsums-baseline.txt` and `/root/apt-drift-baseline.txt`. After any major change or upgrade, re-run both and diff against these files to spot unexpected modifications or drift. These complement AIDE (Section 11) which provides ongoing monitoring.
+
+---
 
 ### [Back to Top](#section-order)
 
 ---
 
+
 ## Section 6 — Mandatory Access Control (MAC)
 
-> Goal: Confirm AppArmor is loaded and that key service profiles are in enforce mode. Establish the correct approach to handling denials — targeted fixes, never disabling the module.
+**Goal:** Confirm AppArmor is loaded and that key service profiles are in enforce mode. Establish the correct approach to handling denials — targeted fixes, never disabling the module.
 
 ### Checklist
 
@@ -736,82 +1396,90 @@ apt autoremove -y
 - [ ] **6.5** Audit AppArmor denials since boot and resolve any outstanding issues
 - [ ] **6.6** Enforce any complain-mode profiles that should be enforced
 
-### Rationale
+### Steps
 
-**6.1 & 6.2 — AppArmor loaded and boot-enabled**  
-Debian 13 ships with AppArmor compiled into the kernel and the `apparmor` service enabled by default. Unlike SELinux's single global mode (Enforcing/Permissive/Disabled), AppArmor is profile-based — each profile is independently set to enforce or complain mode. The `apparmor` service loads all profiles at boot; if the service is inactive, no profiles are loaded and no MAC enforcement is active.
+---
 
-**6.3 — Enforce mode profiles**  
-On a fresh Debian 13 VPS, expect 20–40+ profiles loaded, most in enforce mode. These cover system services like `dhclient`, `cups`, `ntpd`, and on Debian 13, `sshd`. The exact count depends on installed packages — each package that ships an AppArmor profile adds to the list.
+#### 6.1 — Verify AppArmor module and service
 
-**6.4 — Complain mode profiles**  
-Profiles in complain mode log denials without blocking. On a hardened baseline, every profile covering a service you actively run should be in enforce mode. Profiles for services not installed can safely remain in complain mode or be removed.
-
-**6.5 — Denial audit**  
-AppArmor denials appear in the kernel log with the tag `apparmor="DENIED"`. After all configuration changes in Sections 1–5, sweep for any denials — particularly around `sshd`, `fail2ban`, and `auditd`. A post-restart check for sshd denials was already done in Section 3.7; this step is a comprehensive sweep of everything since boot.
-
-**6.6 — Enforce profiles**  
-`aa-enforce` moves a profile from complain to enforce mode and reloads it. Local overrides for a profile go in `/etc/apparmor.d/local/<profile-name>` — this file is included by the main profile and survives package updates to the base profile.
-
-> **The AppArmor cardinal rule:** When something breaks, the answer is never `systemctl stop apparmor` or `aa-complain /etc/apparmor.d/*`. Identify the specific denial with `journalctl -k | grep apparmor`, understand what is being blocked and why, then apply the narrowest possible fix — either a `aa-enforce` call, a custom rule in `/etc/apparmor.d/local/`, or a targeted `aa-complain` on just the affected profile while you diagnose. Disabling MAC system-wide to fix one misbehaving service trades your strongest mandatory access control layer for convenience.
-
-### Scriptable Commands
+Debian 13 ships with AppArmor compiled into the kernel and the `apparmor` service enabled by default. Unlike SELinux's single global mode, AppArmor is profile-based — each profile is independently set to enforce or complain mode. If the service is inactive, no profiles are loaded and no MAC enforcement is active.
 
 ```bash
-# --- 6.1 Verify AppArmor module and service ---
-# Module check (kernel parameter):
 cat /sys/module/apparmor/parameters/enabled
 # Expected: Y
 
-# Service check:
 systemctl is-active apparmor
 systemctl status apparmor
-
-# Full status (counts and profile names):
 aa-status
-# Expected output includes:
-# "apparmor module is loaded."
-# "N profiles are loaded."
-# "X profiles are in enforce mode."
+```
 
-# --- 6.2 Verify AppArmor is enabled at boot ---
+---
+
+#### 6.2 — Verify AppArmor is enabled at boot
+
+```bash
 systemctl is-enabled apparmor
 # Expected: enabled
+```
 
-# --- 6.3 List profiles in enforce mode ---
+---
+
+#### 6.3 — List profiles in enforce mode
+
+On a fresh Debian 13 VPS, expect 20–40+ profiles loaded, most in enforce mode. The exact count depends on installed packages.
+
+```bash
 aa-status | grep 'profiles are in enforce mode'
-# List enforce-mode profiles:
+
+# List enforce-mode profile names:
 aa-status | awk '/in enforce mode/{found=1; next} found && /in complain mode/{exit} found{print}' \
   | grep '^\s'
+```
 
-# --- 6.4 Review complain-mode profiles ---
+---
+
+#### 6.4 — Review complain-mode profiles
+
+Profiles in complain mode log denials without blocking. Every profile covering a service you actively run should be in enforce mode.
+
+```bash
 aa-status | grep 'profiles are in complain mode'
+
 aa-status | awk '/in complain mode/{found=1; next} found && /processes have/{exit} found{print}' \
   | grep '^\s'
+
 # For each profile in complain mode:
-#   - Is the service running? Check with: systemctl is-active <service>
-#   - If running and you care about it: enforce it (see step 6.6)
-#   - If the service is not installed or not relevant: leave in complain
+#   - Is the service running? systemctl is-active <service>
+#   - If yes and it matters: enforce it (see step 6.6)
+#   - If the service is not installed: leave in complain or remove
+```
 
-# --- 6.5 Audit AppArmor denials since boot ---
-journalctl -k --grep='apparmor="DENIED"' --since boot
+---
+
+#### 6.5 — Audit AppArmor denials since boot
+
+After all configuration changes in Sections 1–5, sweep for any denials — particularly around `sshd`, `fail2ban`, and `auditd`. A post-restart check for sshd was already done in Section 3.7; this is a comprehensive sweep.
+
+```bash
+journalctl -k --grep='apparmor="DENIED"' --since=boot
 # No output = no denials — ideal state
-
-# Alternative (dmesg):
-dmesg | grep 'apparmor="DENIED"'
 
 # Resolution hierarchy when denials exist:
 #   1. Fix the service configuration if the denial is caused by misconfiguration
-#   2. Add a local rule override: /etc/apparmor.d/local/<profile-name>
+#   2. Add a local rule: /etc/apparmor.d/local/<profile-name>
 #   3. aa-complain /etc/apparmor.d/<profile> — temporary debug only
 #   Never: systemctl stop apparmor
+```
 
-# --- 6.6 Enforce a specific profile ---
-# Example — enforce the sshd profile if it is in complain mode:
+---
+
+#### 6.6 — Enforce complain-mode profiles
+
+`aa-enforce` moves a profile from complain to enforce mode and reloads it. Local overrides survive package updates — add them to `/etc/apparmor.d/local/<profile-name>`.
+
+```bash
+# Enforce a specific profile (example: sshd):
 # aa-enforce /etc/apparmor.d/usr.sbin.sshd
-
-# Enforce all currently-loaded profiles at once (review complain list first):
-# aa-enforce /etc/apparmor.d/*
 
 # Reload a profile after making local overrides:
 # apparmor_parser -r /etc/apparmor.d/<profile-file>
@@ -821,75 +1489,97 @@ aa-status
 # Confirm: 0 profiles in complain mode (or only profiles for non-installed services)
 ```
 
-> **Local overrides:** To extend a profile without modifying the base file (which would be overwritten on package update), add rules to `/etc/apparmor.d/local/<profile-name>`. For example, to allow sshd a capability not in the base profile:
+> **Local overrides:** To extend a profile without modifying the base file:
 > ```bash
 > echo 'capability net_admin,' >> /etc/apparmor.d/local/usr.sbin.sshd
 > apparmor_parser -r /etc/apparmor.d/usr.sbin.sshd
 > ```
 
+---
+
 ### [Back to Top](#section-order)
 
 ---
 
+
 ## Section 7 — Logging & Audit
 
-> Goal: Ensure all security-relevant events are captured, stored persistently, and rotated safely. Logs are your only forensic trail if something goes wrong.
+**Goal:** Ensure all security-relevant events are captured, stored persistently, and rotated safely. Logs are your only forensic trail if something goes wrong.
 
 ### Checklist
 
 - [ ] **7.1** Enable persistent storage in `journald`
 - [ ] **7.2** Cap `journald` maximum disk usage
-- [ ] **7.3** Configure `auditd` log retention
-- [ ] **7.4** Deploy hardened `auditd` rules
-- [ ] **7.5** Enable and start `auditd`
-- [ ] **7.6** Verify log rotation is configured
+- [ ] **7.3** Enable `auditd` for boot — without starting yet
+- [ ] **7.4** Configure `auditd` log retention
+- [ ] **7.5** Deploy hardened `auditd` rules
+- [ ] **7.6** Start `auditd`
+- [ ] **7.7** Verify log rotation is configured
 
-### Rationale
+### Steps
 
-**7.1 — `journald` persistent storage**  
+---
+
+#### 7.1 — Enable `journald` persistent storage
+
 By default on minimal installs, `journald` stores logs in memory only — all logs are lost on reboot. `Storage=persistent` writes logs to `/var/log/journal/`, surviving reboots.
 
-**7.2 — `journald` disk cap**  
-Persistent logs without a cap will grow unbounded and eventually fill the disk. `SystemMaxUse=500M` sets a hard ceiling.
-
-**7.3 & 7.4 — `auditd` retention and rules**  
-`auditd` hooks directly into the kernel and records system calls — giving visibility into file access, privilege escalation, user/group changes, and network configuration modifications. Configure retention (50MB per file, 10 files) and rules before starting so the first start picks up the complete configuration.
-
-On Debian, `auditd` does **not** carry `RefuseManualStop=yes`. `auditd` can be restarted normally on Debian via `systemctl restart auditd`. The strict ordering constraint does not apply here, but pre-configuring before first start remains good practice.
-
-**7.5 — Enable and start `auditd`**  
-With retention config and rules in place, enable and start auditd together. It picks up everything from `auditd.conf` and `rules.d/` in one clean start.
-
-**7.6 — Log rotation**  
-Verify `logrotate` is handling system logs. Debian includes rotation configs for `auditd` and `rsyslog` by default.
-
-### Scriptable Commands
-
 ```bash
-# --- 7.1 Enable journald persistent storage ---
 mkdir -p /var/log/journal
 sed -i 's/^#Storage=.*/Storage=persistent/' /etc/systemd/journald.conf
 grep -q '^Storage=' /etc/systemd/journald.conf || \
   echo 'Storage=persistent' >> /etc/systemd/journald.conf
+```
 
-# --- 7.2 Cap journald disk usage ---
+---
+
+#### 7.2 — Cap `journald` disk usage
+
+Persistent logs without a cap will grow unbounded and eventually fill the disk. `SystemMaxUse=500M` sets a hard ceiling.
+
+```bash
 sed -i 's/^#SystemMaxUse=.*/SystemMaxUse=500M/' /etc/systemd/journald.conf
 grep -q '^SystemMaxUse=' /etc/systemd/journald.conf || \
   echo 'SystemMaxUse=500M' >> /etc/systemd/journald.conf
 
 systemctl restart systemd-journald
+
 # Verify:
 journalctl --disk-usage
+```
 
-# --- 7.3 Configure auditd log retention ---
+---
+
+#### 7.3 — Enable `auditd` for boot without starting yet
+
+`auditd` hooks directly into the kernel and records system calls — giving visibility into file access, privilege escalation, user/group changes, and network configuration modifications. Unlike AlmaLinux, Debian's `auditd` does not carry `RefuseManualStop=yes` and can be restarted normally. Retention config and rules are deployed before the first start so everything loads in one clean pass.
+
+```bash
+systemctl enable auditd
+```
+
+---
+
+#### 7.4 — Configure `auditd` log retention
+
+`auditd` manages its own log files in `/var/log/audit/`. A rolling set of 50MB per file, 10 files = 500MB maximum audit log retention.
+
+```bash
 sed -i 's/^max_log_file\s*=.*/max_log_file = 50/'                   /etc/audit/auditd.conf
 sed -i 's/^num_logs\s*=.*/num_logs = 10/'                           /etc/audit/auditd.conf
 sed -i 's/^max_log_file_action\s*=.*/max_log_file_action = ROTATE/' /etc/audit/auditd.conf
 
 # Verify:
 grep -E 'max_log_file|num_logs|max_log_file_action' /etc/audit/auditd.conf
+```
 
-# --- 7.4 Deploy auditd rules ---
+---
+
+#### 7.5 — Deploy hardened `auditd` rules
+
+Rules are written to `/etc/audit/rules.d/hardening.rules` before `auditd` starts. On first start, `auditd` merges all files in `rules.d/` into `/etc/audit/audit.rules` and loads them into the kernel automatically. Both `pam_faillock` state directories are watched to cover the default path and any configured override.
+
+```bash
 mkdir -p /etc/audit/rules.d
 
 cat > /etc/audit/rules.d/hardening.rules << 'EOF'
@@ -923,8 +1613,9 @@ cat > /etc/audit/rules.d/hardening.rules << 'EOF'
 -w /usr/sbin/groupdel   -p x  -k user_mgmt
 
 # --- Network configuration ---
--w /etc/hosts           -p wa -k network_config
--w /etc/resolv.conf     -p wa -k network_config
+-w /etc/hosts                      -p wa -k network_config
+-w /etc/systemd/network/           -p wa -k network_config
+-w /etc/systemd/resolved.conf.d/   -p wa -k network_config
 
 # --- Kernel module loading ---
 -w /sbin/insmod         -p x  -k kernel_modules
@@ -933,7 +1624,8 @@ cat > /etc/audit/rules.d/hardening.rules << 'EOF'
 
 # --- Login and session events ---
 -w /var/log/lastlog     -p wa -k logins
--w /var/run/faillock/   -p wa -k logins
+-w /run/faillock/       -p wa -k logins
+-w /var/lib/faillock/   -p wa -k logins
 
 # --- Immutable flag: lock rules at runtime ---
 # -e 2
@@ -941,20 +1633,46 @@ cat > /etc/audit/rules.d/hardening.rules << 'EOF'
 # -e 2 makes rules immutable until next reboot.
 # Leave commented during initial setup and first weeks of operation.
 EOF
+```
 
-# --- 7.5 Enable and start auditd ---
-# On Debian, auditd can be restarted normally — no RefuseManualStop restriction
-systemctl enable --now auditd
+> **Note:** The network config audit rules now watch `/etc/systemd/network/` and `/etc/systemd/resolved.conf.d/` instead of the legacy `/etc/resolv.conf`. Both paths are monitored to cover the transition period.
+
+---
+
+#### 7.6 — Start `auditd`
+
+With retention config and rules both in place, `auditd` is started. It picks up everything in one clean pass.
+
+```bash
+systemctl start auditd
 systemctl status auditd
 
 # Verify rules are active:
 auditctl -l
 # Expected: all rules from hardening.rules listed
+```
 
-# --- 7.6 Verify log rotation configs are present ---
+---
+
+#### 7.7 — Verify log rotation
+
+On Debian 13, `auditd` manages its own log rotation internally — via the `max_log_file`, `num_logs`, and `max_log_file_action = ROTATE` settings configured in step 7.4. There is no `/etc/logrotate.d/auditd` file and none is needed. `logrotate` handles other system logs such as `syslog`, `auth.log`, and `fail2ban`.
+
+```bash
+# Verify auditd self-rotation config is active:
+grep -E 'max_log_file|num_logs|max_log_file_action' /etc/audit/auditd.conf
+# Expected:
+# max_log_file = 50
+# num_logs = 10
+# max_log_file_action = ROTATE
+
+# Verify logrotate is present and handling system logs:
 ls /etc/logrotate.d/
-# auditd and rsyslog entries should be present
-cat /etc/logrotate.d/auditd
+# Expected: apt, dpkg, fail2ban, unattended-upgrades, wtmp, etc.
+# Note: no auditd entry — this is correct on Debian 13
+
+# Confirm audit log directory exists and auditd is writing to it:
+ls -lh /var/log/audit/
 ```
 
 > **Querying audit logs:**
@@ -962,22 +1680,26 @@ cat /etc/logrotate.d/auditd
 > ausearch -k identity              # passwd/shadow/group changes
 > ausearch -k privilege_escalation  # all sudo/su usage
 > ausearch -k sshd_config           # sshd_config modifications
-> aureport --summary                # summarized report of all events
+> ausearch -k network_config        # network configuration changes
+> aureport --summary                # summarised report of all events
 > ```
 
-> **Updating rules on a running Debian system:** auditd on Debian accepts normal restarts:
+> **Reloading rules on a running system:**
 > ```bash
 > systemctl restart auditd
-> auditctl -l  # verify rules reloaded
+> auditctl -l
 > ```
+
+---
 
 ### [Back to Top](#section-order)
 
 ---
 
-## Section 8 — Kernel Hardening 
 
-> Goal: Harden the Linux kernel's network stack and core behavior against IP spoofing, SYN floods, redirect attacks, and information leakage via persistent `sysctl` parameters.
+## Section 8 — Kernel Hardening
+
+**Goal:** Harden the Linux kernel's network stack and core behavior against IP spoofing, SYN floods, redirect attacks, and information leakage via persistent `sysctl` parameters.
 
 ### Checklist
 
@@ -987,53 +1709,29 @@ cat /etc/logrotate.d/auditd
 - [ ] **8.4** Enable reverse path filtering
 - [ ] **8.5** Enable SYN cookies
 - [ ] **8.6** Enable martian packet logging
-- [ ] **8.7** Harden kernel information exposure (`dmesg`, kernel pointers)
+- [ ] **8.7** Harden kernel information exposure
 - [ ] **8.8** Harden ASLR and core dumps
 - [ ] **8.9** Disable Magic SysRq key
 - [ ] **8.10** Apply and persist all parameters
 
-### Rationale
+### Steps
 
-**8.1 — IP forwarding**  
-IP forwarding allows the kernel to route packets between interfaces — necessary for routers, completely unnecessary for a VPS. Leaving it enabled means a compromised process could potentially route traffic through your server.
+---
 
-**8.2 — ICMP redirects**  
-ICMP redirect messages instruct a host to update its routing table. A classic attack vector on public networks — a malicious actor can send crafted ICMP redirects to manipulate your routing table. Disable both accepting and sending redirects.
+#### 8.1–8.9 — Write all kernel hardening parameters
 
-**8.3 — Source routing**  
-IP source routing allows the sender to specify the route a packet takes. Almost exclusively used for spoofing and evasion today. No legitimate use case on a VPS.
-
-**8.4 — Reverse path filtering**  
-Validates that incoming packets arrive on the interface that would be used to reply to the source IP. Packets failing this check are likely spoofed and are dropped. `rp_filter = 1` enables strict mode — correct for a single-interface VPS.
-
-**8.5 — SYN cookies**  
-A SYN flood exhausts the server's connection table by sending large volumes of TCP SYN packets without completing the handshake. SYN cookies allow the kernel to handle SYN floods without allocating state for each half-open connection.
-
-**8.6 — Martian packet logging**  
-Martian packets have source addresses impossible on the public internet. Logging them gives visibility into spoofing attempts.
-
-**8.7 — Kernel information exposure**  
-`dmesg_restrict = 1` prevents unprivileged users from reading kernel ring buffer messages. `kptr_restrict = 2` hides kernel symbol addresses from all users in userspace — makes kernel exploit development significantly harder.
-
-**8.8 — ASLR and core dumps**  
-`randomize_va_space = 2` enables full Address Space Layout Randomization — the kernel randomizes the memory layout of every process, making memory corruption exploits dramatically harder. `fs.suid_dumpable = 0` disables core dumps for SUID processes — core dumps of privileged processes can expose sensitive memory contents including credentials.
-
-**8.9 — Magic SysRq**  
-On a VPS there is no physical keyboard, but the interface may be accessible via the provider's console. Disabling it removes an unnecessary privileged control path.
-
-### Scriptable Commands
+All parameters are written to a single drop-in file. The `99-` prefix ensures it loads last across all `sysctl.d` drop-ins, giving these values the highest precedence over any provider defaults.
 
 ```bash
-# --- 8.1 to 8.9 Write all security sysctl parameters ---
 cat > /etc/sysctl.d/99-hardening.conf << 'EOF'
 # ============================================================
 # Network hardening
 # ============================================================
 
-# 8.1 Disable IP forwarding
+# 8.1 — IP forwarding disabled (not a router)
 net.ipv4.ip_forward = 0
 
-# 8.2 Disable ICMP redirect acceptance and sending
+# 8.2 — ICMP redirects disabled (prevents routing table manipulation)
 net.ipv4.conf.all.accept_redirects = 0
 net.ipv4.conf.default.accept_redirects = 0
 net.ipv4.conf.all.send_redirects = 0
@@ -1041,18 +1739,18 @@ net.ipv4.conf.default.send_redirects = 0
 net.ipv4.conf.all.secure_redirects = 0
 net.ipv4.conf.default.secure_redirects = 0
 
-# 8.3 Disable source routing
+# 8.3 — Source routing disabled (used almost exclusively for spoofing)
 net.ipv4.conf.all.accept_source_route = 0
 net.ipv4.conf.default.accept_source_route = 0
 
-# 8.4 Enable reverse path filtering (strict mode)
+# 8.4 — Reverse path filtering, strict mode (drops spoofed packets)
 net.ipv4.conf.all.rp_filter = 1
 net.ipv4.conf.default.rp_filter = 1
 
-# 8.5 Enable SYN cookies
+# 8.5 — SYN cookies (mitigates SYN flood exhaustion)
 net.ipv4.tcp_syncookies = 1
 
-# 8.6 Martian packet logging
+# 8.6 — Martian packet logging (visibility into spoofing attempts)
 net.ipv4.conf.all.log_martians = 1
 net.ipv4.conf.default.log_martians = 1
 net.ipv4.icmp_echo_ignore_broadcasts = 1
@@ -1062,22 +1760,31 @@ net.ipv4.icmp_ignore_bogus_error_responses = 1
 # Kernel hardening
 # ============================================================
 
-# 8.7 Restrict kernel information exposure
+# 8.7 — Restrict kernel information exposure
+# dmesg_restrict: prevents unprivileged users reading kernel ring buffer
+# kptr_restrict=2: hides kernel symbol addresses from all userspace
 kernel.dmesg_restrict = 1
 kernel.kptr_restrict = 2
 
-# 8.8 Full ASLR + disable SUID core dumps
+# 8.8 — Full ASLR + disable SUID core dumps
+# randomize_va_space=2: full address space randomization
+# suid_dumpable=0: no core dumps for SUID processes (may expose credentials)
 kernel.randomize_va_space = 2
 fs.suid_dumpable = 0
 
-# 8.9 Disable Magic SysRq
+# 8.9 — Magic SysRq disabled (unnecessary privileged control path on a VPS)
 kernel.sysrq = 0
 EOF
+```
 
-# --- 8.10 Apply all parameters ---
+---
+
+#### 8.10 — Apply and verify all parameters
+
+```bash
 sysctl --system
 
-# Verify a sample of applied values:
+# Spot-check applied values:
 sysctl net.ipv4.ip_forward
 sysctl net.ipv4.tcp_syncookies
 sysctl kernel.randomize_va_space
@@ -1088,56 +1795,39 @@ sysctl kernel.sysrq
 # Expected: all match values set above
 ```
 
-> **On `99-hardening.conf`:** The `99-` prefix ensures this file is loaded last among all `sysctl.d` drop-ins, giving our values the highest precedence and overriding any defaults set by the VPS provider.
+---
 
 ### [Back to Top](#section-order)
 
 ---
 
+
 ## Section 9 — Filesystem Hardening
 
-> Goal: Restrict what can be executed and by whom on key filesystem paths, eliminate unnecessary privileged binaries, and lock critical configuration files against modification. All steps apply to an existing VPS without partition restructuring.
+**Goal:** Restrict what can be executed and by whom on key filesystem paths, eliminate unnecessary privileged binaries, and lock critical configuration files against modification.
 
 ### Checklist
 
-- [ ] **9.1** Harden `/tmp` mount options — `noexec`, `nosuid`, `nodev`
-- [ ] **9.2** Harden `/dev/shm` mount options — `noexec`, `nosuid`, `nodev`
+- [ ] **9.1** Harden `/tmp` — `noexec`, `nosuid`, `nodev`
+- [ ] **9.2** Harden `/dev/shm` — `noexec`, `nosuid`, `nodev`
 - [ ] **9.3** Harden `/proc` — restrict process visibility with `hidepid`
 - [ ] **9.4** Audit and remove unnecessary SUID/SGID binaries
 - [ ] **9.5** Sweep for world-writable files and directories
 - [ ] **9.6** Apply `chattr +i` to immutable configuration files
 
-### Rationale
+### Steps
 
-**9.1 — `/tmp` hardening**  
-`/tmp` is world-writable by design. Without mount restrictions, an attacker who gains write access can drop and execute a malicious binary. The `noexec`, `nosuid`, and `nodev` flags eliminate this. On Debian 13, `/tmp` is managed by systemd as a `tmpfs` mount — we override its options with a systemd drop-in.
+---
 
-**9.2 — `/dev/shm` hardening**  
-`/dev/shm` is a shared memory filesystem used for inter-process communication. Like `/tmp`, it is world-writable and can be abused to stage and execute malicious code. This goes in `/etc/fstab` since it is not managed by a systemd unit.
+#### 9.1 — Harden `/tmp`
 
-**9.3 — `/proc` `hidepid`**  
-By default every user can browse `/proc` and see all running processes — including command line arguments which frequently contain credentials or tokens. `hidepid=2` restricts `/proc/<pid>` entries so each user can only see their own processes.
-
-**9.4 — SUID/SGID audit**  
-Every unnecessary SUID binary is a potential privilege escalation path. Enumerate all of them, review the list, and remove the bit from anything that doesn't need it.
-
-**9.5 — World-writable files**  
-Outside of intentional shared paths like `/tmp` and `/dev/shm`, world-writable files are a misconfiguration that should be corrected.
-
-**9.6 — `chattr +i` (immutable flag)**  
-The immutable flag prevents a file from being modified, deleted, or renamed — even by root — until explicitly removed with `chattr -i`. Applied selectively to configuration files that should never change during normal operation.
-
-Note: AppArmor profile files in `/etc/apparmor.d/` are **not** marked immutable — they need to be updateable by `apparmor_parser` during package updates and when applying local overrides.
-
-### Scriptable Commands
+`/tmp` is world-writable by design. The `noexec`, `nosuid`, and `nodev` mount flags prevent an attacker with write access from executing staged binaries. On Debian 13, `/tmp` is managed by systemd as a `tmpfs` mount — we override its options with a systemd drop-in rather than an fstab entry.
 
 ```bash
-# --- 9.1 Harden /tmp via systemd drop-in ---
-
 # Check how /tmp is currently mounted:
 findmnt /tmp
-# If Type is tmpfs — use the systemd drop-in method below
-# If Type is ext4/xfs — contact your provider
+# If Type is tmpfs — use the systemd drop-in below
+# If Type is ext4/xfs — contact your provider; partition restructuring is out of scope
 
 mkdir -p /etc/systemd/system/tmp.mount.d/
 cat > /etc/systemd/system/tmp.mount.d/hardening.conf << 'EOF'
@@ -1150,9 +1840,16 @@ systemctl restart tmp.mount
 
 # Verify:
 findmnt /tmp
-# Expected options: noexec, nosuid, nodev
+# Expected options include: noexec, nosuid, nodev
+```
 
-# --- 9.2 Harden /dev/shm via fstab ---
+---
+
+#### 9.2 — Harden `/dev/shm`
+
+`/dev/shm` is a shared memory filesystem — world-writable and abusable to stage and execute malicious code. This goes in `/etc/fstab` since it is not managed by a systemd unit.
+
+```bash
 cp /etc/fstab /etc/fstab.bak2
 
 # Check if /dev/shm already has an fstab entry:
@@ -1169,13 +1866,23 @@ mount -o remount,noexec,nosuid,nodev /dev/shm
 
 # Verify:
 findmnt /dev/shm
+```
 
-# --- 9.3 Harden /proc with hidepid ---
+---
+
+#### 9.3 — Harden `/proc` with `hidepid`
+
+By default every user can browse `/proc` and see all running processes — including command line arguments which frequently contain credentials or tokens. `hidepid=2` restricts `/proc/<pid>` entries so each user can only see their own processes.
+
+```bash
+# Guide variables — re-export if reconnected:
+# export VPS_USER="dan"
+
 # Create a dedicated group for processes that need full /proc visibility:
 groupadd -r procadmin
-usermod -aG procadmin dan
+usermod -aG procadmin "$VPS_USER"
 
-# Add /proc hardening to fstab:
+# Add to fstab:
 grep -q 'hidepid' /etc/fstab || \
   echo 'proc /proc proc defaults,hidepid=2,gid=procadmin 0 0' >> /etc/fstab
 
@@ -1184,22 +1891,41 @@ mount -o remount,hidepid=2,gid=procadmin /proc
 
 # Verify:
 findmnt /proc
+```
 
-# --- 9.4 Audit SUID/SGID binaries ---
+> Some systemd services read `/proc` entries of other processes during startup. If any service fails after applying `hidepid=2`, add it to the `procadmin` group:
+> ```bash
+> usermod -aG procadmin systemd-logind 2>/dev/null || true
+> usermod -aG procadmin polkitd        2>/dev/null || true
+> ```
+
+---
+
+#### 9.4 — Audit SUID/SGID binaries
+
+Every unnecessary SUID binary is a potential privilege escalation path. Review the full list and remove the bit from anything that does not need it.
+
+```bash
 find / -xdev \( -perm -4000 -o -perm -2000 \) -type f \
   2>/dev/null | tee /root/suid-sgid-baseline.txt
 
-# Review the list carefully.
 # Common legitimate SUID binaries on Debian (keep these):
-# /usr/bin/passwd, /usr/bin/su, /usr/bin/sudo
-# /usr/bin/newgrp, /usr/bin/chsh, /usr/bin/chage
-# /usr/bin/ping, /usr/sbin/unix_chkpwd, /usr/bin/gpasswd
+# /usr/bin/passwd, /usr/bin/su, /usr/bin/sudo, /usr/bin/newgrp
+# /usr/bin/chsh, /usr/bin/chage, /usr/bin/ping
+# /usr/sbin/unix_chkpwd, /usr/bin/gpasswd
 
 # Remove SUID/SGID bit from anything not explicitly needed:
 # chmod u-s /path/to/binary   ← removes SUID
 # chmod g-s /path/to/binary   ← removes SGID
+```
 
-# --- 9.5 World-writable file sweep ---
+---
+
+#### 9.5 — World-writable file sweep
+
+Outside of intentional shared paths like `/tmp` and `/dev/shm`, world-writable files are a misconfiguration.
+
+```bash
 find / -xdev \
   -not \( -path '/tmp'     -prune \) \
   -not \( -path '/dev/shm' -prune \) \
@@ -1218,73 +1944,73 @@ find / -xdev \
   -not \( -path '/proc'    -prune \) \
   -not \( -path '/sys'     -prune \) \
   -perm -0002 -type d 2>/dev/null
+```
 
-# --- 9.6 Apply immutable flag to critical configs ---
+---
+
+#### 9.6 — Apply immutable flag to critical configs
+
+The immutable flag prevents modification or deletion even by root until explicitly removed with `chattr -i`. Applied to files that should never change during normal operation.
+
+`99-performance.conf` is created in Section 10 — a guard here skips it silently if not yet present. The definitive `chattr` for that file is in Section 10 after creation. AppArmor profile files are **not** made immutable — they must remain updateable by `apparmor_parser`.
+
+```bash
 chattr +i /etc/ssh/sshd_config
 chattr +i /etc/ssh/banner
 chattr +i /etc/sysctl.d/99-hardening.conf
-chattr +i /etc/sysctl.d/99-performance.conf
 chattr +i /etc/audit/rules.d/hardening.rules
 
-# AppArmor profiles are NOT made immutable — they must remain
-# updateable by apparmor_parser and package updates.
+# Guard — 99-performance.conf may not exist yet:
+[ -f /etc/sysctl.d/99-performance.conf ] && \
+  chattr +i /etc/sysctl.d/99-performance.conf
 
 # Verify (the 'i' flag should be present):
 lsattr /etc/ssh/sshd_config
 lsattr /etc/sysctl.d/99-hardening.conf
 
 # To temporarily modify any of these files later:
-# chattr -i /path/to/file
-# <make your changes>
-# chattr +i /path/to/file
+# chattr -i /path/to/file  →  make changes  →  chattr +i /path/to/file
 ```
 
-> **On `hidepid` and systemd:** Some systemd services read `/proc` entries of other processes during startup. If any service fails after applying `hidepid=2`, add it to the `procadmin` group: `usermod -aG procadmin <service-user>`.
+---
 
 ### [Back to Top](#section-order)
 
 ---
 
+
 ## Section 10 — Performance Optimization
 
-> Goal: Allocate swap space equal to physical RAM and tune kernel memory management parameters for a general-purpose VPS workload.
+**Goal:** Allocate swap space equal to physical RAM and tune kernel memory management parameters for a general-purpose VPS workload.
 
 ### Checklist
 
-- [ ] **10.1** Detect physical RAM size in MiB
+- [ ] **10.1** Detect physical RAM size
 - [ ] **10.2** Create, format, and activate swapfile using `dd`
 - [ ] **10.3** Persist swapfile in `/etc/fstab`
 - [ ] **10.4** Tune `vm.swappiness`
 - [ ] **10.5** Tune dirty page ratios
 - [ ] **10.6** Tune inode/dentry cache pressure
-- [ ] **10.7** Apply and persist performance `sysctl` parameters
+- [ ] **10.7** Apply, persist, and lock performance parameters
 
-### Rationale
+### Steps
 
-**10.1 & 10.2 — Swapfile with `dd`**  
-A swapfile provides an overflow buffer when physical RAM is exhausted. We use `dd` to write actual zeros to every block — unlike `fallocate` which only reserves space without writing data, leaving previously deleted data in those blocks. A swapfile created with `fallocate` could expose old data when the kernel writes memory pages into those blocks. `dd` guarantees the swapfile is clean. Permissions must be `600` — a world-readable swapfile exposes memory contents to any local user.
+---
 
-**10.3 — `/etc/fstab` persistence**  
-`swapon` activates the swapfile for the current session only. Adding it to `/etc/fstab` ensures it is mounted automatically on every boot.
-
-**10.4 — `vm.swappiness = 10`**  
-Controls how aggressively the kernel moves memory pages to swap. The default is `60`. For a VPS where RAM is the primary performance resource, `10` tells the kernel to strongly prefer keeping data in RAM and only swap under genuine memory pressure.
-
-**10.5 — Dirty page ratios**  
-- `vm.dirty_background_ratio = 5` — at 5% of RAM dirty, background kernel threads start writing to disk quietly without blocking processes
-- `vm.dirty_ratio = 15` — at 15% of RAM dirty, processes themselves are forced to flush
-
-**10.6 — `vm.vfs_cache_pressure = 50`**  
-Setting it to `50` makes the kernel favor keeping filesystem metadata in cache longer, benefiting workloads with frequent directory lookups and file access.
-
-### Scriptable Commands
+#### 10.1 — Detect physical RAM size
 
 ```bash
-# --- 10.1 Detect RAM size in MiB ---
 RAM_MiB=$(free -m | awk '/^Mem:/{print $2}')
 echo "Detected RAM: ${RAM_MiB} MiB — swapfile will be ${RAM_MiB}M"
+```
 
-# --- 10.2 Create, format, and activate swapfile ---
+---
+
+#### 10.2 — Create, format, and activate swapfile
+
+We use `dd` rather than `fallocate` — `fallocate` only reserves space without writing data, leaving previously deleted content in those blocks. A swapfile created with `fallocate` could expose old data when the kernel writes memory pages into those blocks. `dd` guarantees the swapfile is zeroed before it ever receives memory contents. Permissions must be `600` — a world-readable swapfile exposes memory contents to any local user.
+
+```bash
 dd if=/dev/zero of=/swapfile bs=1M count=${RAM_MiB} status=progress
 chmod 600 /swapfile
 mkswap /swapfile
@@ -1293,32 +2019,53 @@ swapon /swapfile
 # Verify:
 swapon --show
 free -h
+```
 
-# --- 10.3 Persist swapfile in fstab ---
-cp /etc/fstab /etc/fstab.bak
+---
+
+#### 10.3 — Persist swapfile in `/etc/fstab`
+
+`swapon` activates the swapfile for the current session only. The fstab entry ensures it mounts automatically on every boot.
+
+```bash
 echo '/swapfile none swap sw 0 0' >> /etc/fstab
 
-# Verify fstab entry:
+# Verify:
 grep swapfile /etc/fstab
+```
 
-# --- 10.4 to 10.6 Write performance sysctl parameters ---
+---
+
+#### 10.4–10.6 — Write performance sysctl parameters
+
+- `vm.swappiness = 10` — default is 60; `10` tells the kernel to strongly prefer RAM over swap, only using swap under genuine memory pressure
+- `vm.dirty_background_ratio = 5` — background flush starts at 5% dirty RAM, quietly without blocking processes
+- `vm.dirty_ratio = 15` — at 15% dirty RAM, processes are forced to flush
+- `vm.vfs_cache_pressure = 50` — default is 100; `50` favors keeping filesystem metadata (inode/dentry cache) longer, benefiting frequent directory lookups
+
+```bash
 cat > /etc/sysctl.d/99-performance.conf << 'EOF'
 # ============================================================
 # Memory management
 # ============================================================
 
-# 10.4 Reduce swap aggressiveness
+# 10.4 — Reduce swap aggressiveness
 vm.swappiness = 10
 
-# 10.5 Dirty page flush thresholds
+# 10.5 — Dirty page flush thresholds
 vm.dirty_background_ratio = 5
 vm.dirty_ratio = 15
 
-# 10.6 Favor keeping inode/dentry cache
+# 10.6 — Favor keeping inode/dentry cache
 vm.vfs_cache_pressure = 50
 EOF
+```
 
-# --- 10.7 Apply parameters ---
+---
+
+#### 10.7 — Apply, persist, and lock parameters
+
+```bash
 sysctl --system
 
 # Verify applied values:
@@ -1326,25 +2073,32 @@ sysctl vm.swappiness
 sysctl vm.dirty_background_ratio
 sysctl vm.dirty_ratio
 sysctl vm.vfs_cache_pressure
+
+# Mark immutable now that the file exists (definitive step — also guarded in Section 9.6):
+chattr +i /etc/sysctl.d/99-performance.conf
+lsattr /etc/sysctl.d/99-performance.conf
 ```
+
+---
 
 ### [Back to Top](#section-order)
 
 ---
 
+
 ## Section 11 — Intrusion Detection System
 
-> Goal: Establish a cryptographic baseline of the filesystem after hardening is complete. Any unexpected file modification, addition, or deletion is detectable on subsequent checks. Configured conservatively to minimize resource impact on a low-resource VPS.
+**Goal:** Establish a cryptographic baseline of the filesystem after hardening is complete. Any unexpected file modification, addition, or deletion is detectable on subsequent checks.
 
 ### Resource Profile
 
-| Operation | Duration | RAM Usage | CPU | Disk I/O |
-|-----------|----------|-----------|-----|----------|
-| `aide --init` | 2–5 min | ~80–120MB | 100% (1 core) | Heavy read |
-| `aide --check` | 1–3 min | ~60–90MB | 100% (1 core) | Heavy read |
-| Idle | — | 0 | 0 | None |
+| Operation      | Duration | RAM Usage | CPU           | Disk I/O   |
+| -------------- | -------- | --------- | ------------- | ---------- |
+| `aide --init`  | 2–5 min  | ~80–120MB | 100% (1 core) | Heavy read |
+| `aide --check` | 1–3 min  | ~60–90MB  | 100% (1 core) | Heavy read |
+| Idle           | —        | 0         | 0             | None       |
 
-All scans are run with `nice -n 19 ionice -c 3` to minimize impact on live services. Schedule scans during your lowest-traffic window.
+All scans run with `nice -n 19 ionice -c 3` to minimize impact on live services.
 
 ### Checklist
 
@@ -1355,35 +2109,23 @@ All scans are run with `nice -n 19 ionice -c 3` to minimize impact on live servi
 - [ ] **11.5** Create a resource-conscious check script
 - [ ] **11.6** Schedule periodic checks via `cron`
 
-### Rationale
+### Steps
 
-**11.1 — Targeted monitoring scope**  
-The default AIDE configuration monitors an extremely broad set of paths. On Debian 13, AIDE's config is at `/etc/aide/aide.conf`. We overwrite this with a lean, targeted configuration.
+---
 
-`database_attrs` suppresses GnuTLS GOST warnings. Setting `database_attrs` explicitly avoids these warnings when AIDE verifies its own database files.
+#### 11.1 — Configure AIDE monitoring scope
 
-**Attribute policies:**
-- `NORMAL` — full integrity check including inode. Used for all standard paths.
-- `BOOT` — identical to NORMAL but without inode checking (`i`). Used for `/boot` because the EFI partition uses FAT32, which generates synthetic inode numbers at mount time. These numbers change on every remount or reboot regardless of file content, generating guaranteed false positives. File content (checksums), permissions, and ownership are still fully monitored under `BOOT`.
+On Debian 13, AIDE's config lives at `/etc/aide/aide.conf`. AIDE also processes all files in `/etc/aide/aide.conf.d/` in addition to the main config — drop-ins from installed packages may re-add paths you exclude. Review them and empty any conflicting ones before building the database.
 
-The `xattrs` attribute (not `selinux`) is used for extended attribute monitoring — Debian uses AppArmor which does not store labels as SELinux xattrs. The `selinux` AIDE attribute is not applicable on a Debian AppArmor system.
-
-**Monitored paths:** `/etc`, `/bin`, `/sbin`, `/usr/bin`, `/usr/sbin`, `/boot`, `/root`, `/lib/modules`
-
-**Excluded paths (high churn):** `/etc/mtab`, `/etc/resolv.conf`, `/var/log`, `/var/spool`, `/var/cache`, `/proc`, `/sys`, `/tmp`, `/dev/shm`, `/run`, volatile shell session files.
-
-**11.2 — `aide --init` must run last**  
-The database captures the current state as the trusted baseline. Run it only after all hardening steps are complete.
-
-**11.3 — Database placement**  
-AIDE writes the new database to `aide.db.new.gz`. It will not use it for checks until renamed to `aide.db.gz` — preventing AIDE from automatically trusting an unreviewed database.
-
-### Scriptable Commands
+Two attribute policies are defined. `NORMAL` is a full integrity check including inode. `BOOT` is identical but omits inode checking — used for `/boot` because the EFI partition uses FAT32, which generates synthetic inode numbers that change on every remount regardless of file content. `xattrs` is used instead of `selinux` — Debian uses AppArmor which does not store labels as SELinux xattrs.
 
 ```bash
-# --- 11.1 Configure AIDE monitoring scope ---
-# Debian AIDE config path: /etc/aide/aide.conf (not /etc/aide.conf)
 cp /etc/aide/aide.conf /etc/aide/aide.conf.bak
+
+# Check for drop-in configs that may re-add excluded paths:
+ls /etc/aide/aide.conf.d/
+# Review each file — empty any that conflict with exclusions below:
+# echo '' > /etc/aide/aide.conf.d/<conflicting-file>
 
 cat > /etc/aide/aide.conf << 'EOF'
 # AIDE configuration — Debian 13, resource-conscious, high-value paths only
@@ -1394,8 +2136,7 @@ database_out=file:/var/lib/aide/aide.db.new.gz
 database_new=file:/var/lib/aide/aide.db.new.gz
 gzip_dbout=yes
 
-# Database self-verification algorithms
-# Explicitly listed to suppress stribog (GOST) warnings from GnuTLS
+# Suppress stribog (GOST) warnings from GnuTLS
 database_attrs=sha256+sha512+md5+sha1+rmd160
 
 # Report output
@@ -1406,12 +2147,11 @@ report_url=stdout
 # Attribute policies
 # ============================================================
 
-# Standard policy — full integrity check including inode
-# xattrs used instead of selinux — Debian uses AppArmor (no SELinux xattrs)
+# Full integrity check including inode
+# xattrs used — Debian uses AppArmor (no SELinux xattrs)
 NORMAL = sha256+sha512+ftype+p+i+n+u+g+s+acl+xattrs
 
-# Boot policy — no inode checking
-# /boot/efi uses FAT32 which generates synthetic inode numbers at mount time
+# No inode checking — for FAT32 /boot which generates synthetic inodes
 BOOT = sha256+sha512+ftype+p+n+u+g+s+acl+xattrs
 
 # ============================================================
@@ -1427,7 +2167,7 @@ BOOT = sha256+sha512+ftype+p+n+u+g+s+acl+xattrs
 /etc                    NORMAL
 
 # ============================================================
-# Explicit exclusions within monitored paths
+# Exclusions within monitored paths
 # ============================================================
 !/etc/mtab
 !/etc/aide/aide.conf
@@ -1441,7 +2181,7 @@ BOOT = sha256+sha512+ftype+p+n+u+g+s+acl+xattrs
 !/dev/shm
 !/run
 
-# Volatile root home files — change on every session, not security-relevant
+# Volatile root home files
 !/root/.lesshst
 !/root/.zsh_history
 !/root/.bash_history
@@ -1450,21 +2190,44 @@ EOF
 
 mkdir -p /var/log/aide
 chmod 700 /var/log/aide
+```
 
-# --- 11.2 Build initial database ---
-# ⚠️  Run ONLY after ALL hardening sections are complete
-# ⚠️  If aide.conf is modified after this step, --init must be re-run
-nice -n 19 ionice -c 3 aide --init
+---
+
+#### 11.2 — Build the initial AIDE database
+
+> ⚠️ Run this only after **all** hardening sections are complete. The database captures the current state as the trusted baseline — any change made after `--init` will appear as a false alert on the next check.
+
+```bash
+nice -n 19 ionice -c 3 aide --config=/etc/aide/aide.conf --init
 # Takes 2–5 minutes with pegged vCPU — expected behaviour
+```
 
-# --- 11.3 Activate the database ---
+---
+
+#### 11.3 — Activate the database
+
+AIDE writes to `aide.db.new.gz` and will not use it for checks until renamed — preventing automatic trust of an unreviewed database.
+
+```bash
 mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+```
 
-# --- 11.4 Baseline integrity check ---
-nice -n 19 ionice -c 3 aide --check
+---
+
+#### 11.4 — Run a baseline integrity check
+
+```bash
+nice -n 19 ionice -c 3 aide --config=/etc/aide/aide.conf --check
 # Expected: AIDE found no differences between database and filesystem.
+# Any output beyond this should be investigated before proceeding.
+```
 
-# --- 11.5 Create resource-conscious check script ---
+---
+
+#### 11.5 — Create a resource-conscious check script
+
+```bash
 cat > /usr/local/bin/aide-check.sh << 'EOF'
 #!/bin/bash
 # AIDE integrity check — resource-conscious wrapper
@@ -1476,7 +2239,7 @@ echo "========================================" >> "$LOG"
 echo "AIDE check started: $TIMESTAMP"          >> "$LOG"
 echo "========================================" >> "$LOG"
 
-nice -n 19 ionice -c 3 aide --check >> "$LOG" 2>&1
+nice -n 19 ionice -c 3 aide --config=/etc/aide/aide.conf --check >> "$LOG" 2>&1
 EXIT_CODE=$?
 
 echo "Exit code: $EXIT_CODE" >> "$LOG"
@@ -1489,19 +2252,24 @@ echo "AIDE check finished: $(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG"
 # 4 = changed files
 # 8+ = errors during execution
 if [ $EXIT_CODE -eq 0 ]; then
-  echo "RESULT: CLEAN — no changes detected"                             >> "$LOG"
+  echo "RESULT: CLEAN — no changes detected"                               >> "$LOG"
 elif [ $((EXIT_CODE & 8)) -ne 0 ] || [ $EXIT_CODE -ge 16 ]; then
   echo "RESULT: ERROR — AIDE encountered a problem (exit code: $EXIT_CODE)" >> "$LOG"
 else
-  echo "RESULT: CHANGES DETECTED — review log (exit code: $EXIT_CODE)"  >> "$LOG"
+  echo "RESULT: CHANGES DETECTED — review log (exit code: $EXIT_CODE)"    >> "$LOG"
 fi
 EOF
 
 chmod 700 /usr/local/bin/aide-check.sh
 chown root:root /usr/local/bin/aide-check.sh
+```
 
-# --- 11.6 Schedule weekly check via cron ---
-# Every Monday at 3:00 AM
+---
+
+#### 11.6 — Schedule periodic checks via `cron`
+
+```bash
+# Every Monday at 3:00 AM:
 echo '0 3 * * 1 root /usr/local/bin/aide-check.sh' \
   > /etc/cron.d/aide-check
 
@@ -1510,81 +2278,66 @@ chmod 644 /etc/cron.d/aide-check
 # Verify:
 cat /etc/cron.d/aide-check
 
-# Run the check script once manually to verify it works:
+# Run once manually to confirm the script works and to seed the log:
 bash /usr/local/bin/aide-check.sh
-
-# Review result:
 tail -5 /var/log/aide/aide-check.log
 # Expected last line: RESULT: CLEAN — no changes detected
 ```
 
-> **Updating the database after intentional changes:** Any time you deliberately modify a monitored file, rebuild the AIDE database afterward:
+> **After intentional changes:** Rebuild the database after any deliberate modification to a monitored file:
 > ```bash
-> nice -n 19 ionice -c 3 aide --update
+> nice -n 19 ionice -c 3 aide --config=/etc/aide/aide.conf --update
 > mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
 > ```
 > Habit: **change → verify → update database**.
 
-> **Reviewing check logs:**
-> ```bash
-> tail -50 /var/log/aide/aide-check.log   # wrapper script log
-> tail -50 /var/log/aide/aide.log          # AIDE native log
-> ```
+---
 
 ### [Back to Top](#section-order)
 
 ---
 
+
 ## Section 12 — Maintenance Hygiene
 
-> Goal: Establish the operational habits that keep the hardened system hardened over time. A well-configured VPS degrades without a consistent maintenance rhythm.
+**Goal:** Establish the operational habits that keep the hardened system hardened over time. A well-configured VPS degrades without a consistent maintenance rhythm.
 
 ### Checklist
 
-- [ ] **12.1** Define snapshot discipline — before every significant change
+- [ ] **12.1** Define snapshot discipline
 - [ ] **12.2** Establish a weekly review routine
 - [ ] **12.3** Establish a monthly review routine
 - [ ] **12.4** Create a periodic hardening health-check script
 - [ ] **12.5** Document your rollback procedure
 
-### Rationale
+### Steps
 
-**12.1 — Snapshot before changes**  
-A snapshot taken before any significant change gives you a clean rollback point. Make it a non-negotiable reflex: **snapshot first, change second**.
+---
 
-Recommended triggers:
-- Before any `apt upgrade` that includes kernel packages
-- Before installing any new service
-- Before modifying any hardening configuration
-- Before running `aide --update`
+#### 12.1 — Snapshot discipline
 
-**12.2 — Weekly review**  
-Short, focused checks covering `fail2ban` ban activity, AIDE check results, and a brief auth log scan. Should take under 10 minutes.
+A snapshot taken before any significant change gives you a clean rollback point. **Snapshot first, change second** — always.
 
-**12.3 — Monthly review**  
-Deeper checks covering open ports, running services, `auditd` summary, disk usage, and manual review of updates `unattended-upgrades` may have held back.
-
-**12.4 — Health-check script**  
-Runs the key verification commands from every hardening section and produces a concise status report. Particularly useful after a reboot or provider maintenance window.
-
-**12.5 — Rollback procedure**  
-Document the exact steps to restore from a snapshot for your specific provider. Write it down while calm, not during an incident.
-
-### Scriptable Commands
+Recommended triggers: before any `apt upgrade` that includes kernel packages, before installing any new service, before modifying any hardening configuration, before running an AIDE database update.
 
 ```bash
-# --- 12.1 Snapshot discipline ---
 # Manual step at your VPS provider's control panel.
 # Label snapshots with date and reason:
 # e.g., "2025-05-01 pre-kernel-upgrade"
+```
 
-# --- 12.2 Weekly review commands ---
+---
+
+#### 12.2 — Weekly review
+
+Short, focused checks covering `fail2ban` ban activity, AIDE check results, and a brief auth log scan. Should take under 10 minutes.
+
+```bash
 echo "=== fail2ban: banned IPs ==="
 fail2ban-client status sshd
 
 echo "=== AIDE: last check result ==="
-tail -20 /var/log/aide/aide-check.log 2>/dev/null || \
-  tail -20 /var/log/aide/aide.log
+tail -20 /var/log/aide/aide-check.log
 
 echo "=== Auth log: recent sudo and SSH events ==="
 ausearch -k privilege_escalation -ts today 2>/dev/null | aureport --summary
@@ -1592,12 +2345,20 @@ journalctl _COMM=sshd --since "7 days ago" | grep -i 'failed\|accepted\|invalid'
 
 echo "=== AppArmor: any new denials ==="
 journalctl -k --grep='apparmor="DENIED"' --since "7 days ago" | head -20
+```
 
-# --- 12.3 Monthly review commands ---
+---
+
+#### 12.3 — Monthly review
+
+Deeper checks covering open ports, running services, `auditd` summary, disk usage, and package drift.
+
+```bash
 echo "=== Open ports ==="
 ss -tlnp
 
-echo "=== Firewall state ==="
+echo "=== Network state ==="
+networkctl status
 firewall-cmd --zone=public --list-all
 
 echo "=== Running services ==="
@@ -1613,13 +2374,17 @@ df -h
 du -sh /var/log/audit/
 du -sh /var/log/journal/
 
+echo "=== Package update drift ==="
+apt update -qq
+apt-show-versions | grep -v 'uptodate'
+
 echo "=== Pending non-security updates ==="
 apt-get --just-print upgrade 2>/dev/null | grep '^Inst' | head -20
 
-echo "=== debsums drift check ==="
-debsums -c 2>/dev/null | grep -v 'REPLACED'
+echo "=== debsums drift ==="
+debsums -c 2>/dev/null
 
-echo "=== World-writable files drift check ==="
+echo "=== World-writable files drift ==="
 find / -xdev \
   -not \( -path '/tmp'     -prune \) \
   -not \( -path '/dev/shm' -prune \) \
@@ -1631,83 +2396,104 @@ echo "=== New SUID/SGID binaries since baseline ==="
 find / -xdev \( -perm -4000 -o -perm -2000 \) -type f 2>/dev/null \
   | diff /root/suid-sgid-baseline.txt - 2>/dev/null \
   | grep '^>'
+```
 
-# --- 12.4 Hardening health-check script ---
-cat > /usr/local/bin/harden-check.sh << 'EOF'
+---
+
+#### 12.4 — Hardening health-check script
+
+Runs key verification commands from every section and produces a concise pass/fail report. Run after every reboot or provider maintenance window.
+
+```bash
+# Guide variables — re-export if reconnected:
+# export VPS_USER="dan"
+# export VPS_SSH_PORT="32022"
+
+cat > /usr/local/bin/harden-check.sh << EOF
 #!/bin/bash
-# Hardening posture health check — Debian 13, covers all 12 sections
+# Hardening posture health check — Debian 13
 
 PASS="\e[32mPASS\e[0m"
 FAIL="\e[31mFAIL\e[0m"
+VPS_USER="${VPS_USER}"
+VPS_SSH_PORT="${VPS_SSH_PORT}"
 
 check() {
-  local label="$1"
-  local result="$2"
-  local expected="$3"
-  if echo "$result" | grep -qE "$expected"; then
-    echo -e "[$PASS] $label"
+  local label="\$1"
+  local result="\$2"
+  local expected="\$3"
+  if echo "\$result" | grep -qE "\$expected"; then
+    echo -e "[\$PASS] \$label"
   else
-    echo -e "[$FAIL] $label"
-    echo "       Got: $result"
+    echo -e "[\$FAIL] \$label"
+    echo "       Got: \$result"
   fi
 }
 
 echo "================================================"
-echo " Hardening Health Check — $(date '+%Y-%m-%d %H:%M:%S')"
+echo " Hardening Health Check — \$(date '+%Y-%m-%d %H:%M:%S')"
 echo "================================================"
 
 # Section 1 — OS Baseline
-check "timesyncd active"          "$(systemctl is-active systemd-timesyncd)"              "active"
-check "unattended-upgrades on"    "$(systemctl is-enabled unattended-upgrades)"            "enabled"
+check "timesyncd active"           "\$(systemctl is-active systemd-timesyncd)"             "active"
+check "unattended-upgrades on"     "\$(systemctl is-enabled unattended-upgrades)"          "enabled"
+check "hostname in /etc/hosts"     "\$(grep -c "\$(hostname)" /etc/hosts)"                "[1-9]"
 
 # Section 2 — User & Auth
-check "root account locked"       "$(passwd -S root | awk '{print $2}')"                  "L"
-check "dan in sudo group"         "$(groups dan)"                                          "sudo"
+check "root SSH login blocked"     "\$(sshd -T | grep permitrootlogin)"                   "no"
+check "user password locked"       "\$(passwd -S \$VPS_USER | awk '{print \$2}')"          "L"
+check "user in sudo group"         "\$(groups \$VPS_USER)"                                 "sudo"
+check "sudo rootpw configured"     "\$(cat /etc/sudoers.d/\$VPS_USER 2>/dev/null)"         "rootpw"
+check "PAM faillock success=2"     "\$(grep pam_unix /etc/pam.d/common-auth)"              "success=2"
 
 # Section 3 — SSH
-check "sshd running"              "$(systemctl is-active sshd)"                            "active"
-check "sshd on port 32022"        "$(ss -tlnp | grep sshd)"                               "32022"
-check "PasswordAuth off"          "$(sshd -T | grep passwordauthentication)"               "no"
-check "fail2ban running"          "$(systemctl is-active fail2ban)"                        "active"
+check "sshd running"               "\$(systemctl is-active sshd)"                          "active"
+check "sshd on correct port"       "\$(ss -tlnp | grep sshd)"                             "\${VPS_SSH_PORT}"
+check "PasswordAuth off"           "\$(sshd -T | grep passwordauthentication)"             "no"
+check "KbdInteractive off"         "\$(sshd -T | grep kbdinteractiveauthentication)"       "no"
+check "UsePAM enabled"             "\$(sshd -T | grep usepam)"                             "yes"
+check "fail2ban running"           "\$(systemctl is-active fail2ban)"                      "active"
 
-# Section 4 — Firewall
-check "firewalld running"         "$(systemctl is-active firewalld)"                       "active"
-check "port 32022 open"           "$(firewall-cmd --zone=public --list-ports)"             "32022"
+# Section 4 — Network & Firewall
+check "systemd-networkd active"    "\$(systemctl is-active systemd-networkd)"              "active"
+check "systemd-resolved active"    "\$(systemctl is-active systemd-resolved)"              "active"
+check "legacy networking masked"   "\$(systemctl is-enabled networking 2>/dev/null)"       "masked"
+check "firewalld running"          "\$(systemctl is-active firewalld)"                     "active"
+check "SSH port open"              "\$(firewall-cmd --zone=public --list-ports)"           "\${VPS_SSH_PORT}"
 
 # Section 6 — AppArmor
-check "AppArmor module loaded"    "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)" "Y"
-check "AppArmor service active"   "$(systemctl is-active apparmor)"                        "active"
+check "AppArmor module loaded"     "\$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)" "Y"
+check "AppArmor service active"    "\$(systemctl is-active apparmor)"                      "active"
 
-# AppArmor sshd denial check (0 = pass):
-SSH_DENIALS=$(journalctl -k --grep='apparmor="DENIED".*sshd' --since boot 2>/dev/null | wc -l)
-if [ "$SSH_DENIALS" -eq 0 ]; then
-  echo -e "[$PASS] No AppArmor sshd denials"
+SSH_DENIALS=\$(journalctl -k --grep='apparmor="DENIED".*sshd' --since=boot 2>/dev/null | wc -l)
+if [ "\$SSH_DENIALS" -eq 0 ]; then
+  echo -e "[\$PASS] No AppArmor sshd denials"
 else
-  echo -e "[$FAIL] AppArmor sshd denials found: $SSH_DENIALS"
+  echo -e "[\$FAIL] AppArmor sshd denials found: \$SSH_DENIALS"
 fi
 
 # Section 7 — Audit & Logging
-check "auditd running"            "$(systemctl is-active auditd)"                          "active"
-check "auditd rules loaded"       "$(auditctl -l | wc -l)"                                 "[1-9]"
-check "journald persistent"       "$(journalctl --disk-usage | grep 'Archived')"           "M|G"
+check "auditd running"             "\$(systemctl is-active auditd)"                        "active"
+check "auditd rules loaded"        "\$(auditctl -l | wc -l)"                               "[1-9]"
+check "journald persistent"        "\$(journalctl --disk-usage | grep 'Archived')"         "M|G"
 
 # Section 8 — Kernel hardening
-check "ip_forward disabled"       "$(sysctl -n net.ipv4.ip_forward)"                      "0"
-check "SYN cookies enabled"       "$(sysctl -n net.ipv4.tcp_syncookies)"                   "1"
-check "ASLR enabled"              "$(sysctl -n kernel.randomize_va_space)"                 "2"
-check "dmesg restricted"          "$(sysctl -n kernel.dmesg_restrict)"                     "1"
+check "ip_forward disabled"        "\$(sysctl -n net.ipv4.ip_forward)"                    "0"
+check "SYN cookies enabled"        "\$(sysctl -n net.ipv4.tcp_syncookies)"                 "1"
+check "ASLR enabled"               "\$(sysctl -n kernel.randomize_va_space)"               "2"
+check "dmesg restricted"           "\$(sysctl -n kernel.dmesg_restrict)"                   "1"
 
-# Section 9 — Filesystem Hardening
-check "/tmp noexec"               "$(findmnt /tmp     | grep noexec)"                      "noexec"
-check "/dev/shm noexec"           "$(findmnt /dev/shm | grep noexec)"                      "noexec"
+# Section 9 — Filesystem
+check "/tmp noexec"                "\$(findmnt /tmp     | grep noexec)"                    "noexec"
+check "/dev/shm noexec"            "\$(findmnt /dev/shm | grep noexec)"                    "noexec"
 
 # Section 10 — Performance
-check "swap active"               "$(swapon --show | grep swapfile)"                       "swapfile"
-check "swappiness at 10"          "$(sysctl -n vm.swappiness)"                             "10"
+check "swap active"                "\$(swapon --show | grep swapfile)"                     "swapfile"
+check "swappiness at 10"           "\$(sysctl -n vm.swappiness)"                           "10"
 
 # Section 11 — AIDE
-check "AIDE database exists"      "$(ls /var/lib/aide/aide.db.gz 2>/dev/null)"             "aide.db.gz"
-check "AIDE cron scheduled"       "$(cat /etc/cron.d/aide-check 2>/dev/null)"              "aide-check.sh"
+check "AIDE database exists"       "\$(ls /var/lib/aide/aide.db.gz 2>/dev/null)"           "aide.db.gz"
+check "AIDE cron scheduled"        "\$(cat /etc/cron.d/aide-check 2>/dev/null)"            "aide-check.sh"
 
 echo "================================================"
 echo " Check complete"
@@ -1719,8 +2505,13 @@ chown root:root /usr/local/bin/harden-check.sh
 
 # Run immediately to confirm baseline passes:
 bash /usr/local/bin/harden-check.sh
+```
 
-# --- 12.5 Rollback procedure template ---
+---
+
+#### 12.5 — Document your rollback procedure
+
+```bash
 cat > /root/ROLLBACK.md << 'EOF'
 # VPS Rollback Procedure
 
@@ -1730,20 +2521,21 @@ cat > /root/ROLLBACK.md << 'EOF'
 3. Select snapshot labeled with date and reason
 4. Click Restore — confirm when prompted
 5. Wait for restore to complete (typically 2–5 minutes)
-6. SSH in to verify: ssh -p 32022 -i ~/.ssh/id_ed25519 dan@<ip>
+6. SSH in to verify
 
 ## After restore — verify hardening posture
 bash /usr/local/bin/harden-check.sh
 
 ## If SSH is unreachable after restore
 1. Use provider console (web-based VNC/serial)
-2. Log in as dan
-3. Check sshd:    systemctl status sshd
-4. Check firewall: firewall-cmd --list-ports
-5. Check AppArmor: systemctl status apparmor && aa-status
+2. Log in as the rootless user
+3. Check sshd:            sudo systemctl status sshd
+4. Check firewall:        sudo firewall-cmd --list-ports
+5. Check network:         networkctl status
+6. Check AppArmor:        sudo systemctl status apparmor && sudo aa-status
 
 ## Emergency: if locked out completely
-1. Provider console → log in as dan
+1. Provider console → log in as the rootless user
 2. sudo systemctl restart sshd
 3. If sshd fails: sudo aa-complain /etc/apparmor.d/usr.sbin.sshd → restart → diagnose → re-enforce
 EOF
@@ -1752,14 +2544,17 @@ chmod 600 /root/ROLLBACK.md
 echo "Rollback procedure written to /root/ROLLBACK.md"
 
 # ROLLBACK.md was created after AIDE --init — update the database:
-nice -n 19 ionice -c 3 aide --update
+nice -n 19 ionice -c 3 aide --config=/etc/aide/aide.conf --update
 mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
 echo "AIDE database updated to include ROLLBACK.md"
 ```
 
+---
+
 ### [Back to Top](#section-order)
 
 ---
+
 
 ## Quick Reference — Section Execution Order
 
@@ -1767,10 +2562,10 @@ Run sections in this exact order. Do not skip ahead.
 
 ```
 1  → OS Baseline           (updates, essentials, unattended-upgrades)
-2  → User & Auth           (create dan, lock root)
-3  → SSH Hardening         (keys, sshd_config, fail2ban — no AppArmor port step)
-4  → Firewall              (firewalld baseline rules)
-5  → Package Integrity     (APT GPG re-audit, debsums)
+2  → User & Auth           (create user, lock root)
+3  → SSH Hardening         (keys, authorized_keys ownership, sshd_config, client config, fail2ban)
+4  → Network & Firewall    (firewalld baseline, migrate to systemd-networkd, harden)
+5  → Package Integrity     (APT GPG re-audit, debsums, apt-show-versions)
 6  → AppArmor              (confirm loaded, audit profiles and denials)
 7  → Audit & Logging       (auditd rules, journald persistent)
 8  → Kernel Hardening      (sysctl security)
