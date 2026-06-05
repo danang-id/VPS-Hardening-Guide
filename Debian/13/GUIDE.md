@@ -3,7 +3,7 @@
 |					|											|
 | ----------------- | ----------------------------------------- |
 | **Target OS**		| Debian 13.x (Trixie — current "stable")	|
-| **Guide Version**	| Debian-13-Rev-1							|
+| **Guide Version**	| Debian-13-Rev-0							|
 
 
 ## Contextual Preamble
@@ -2529,7 +2529,7 @@ cat > /root/ROLLBACK.md << 'EOF'
 6. SSH in to verify
 
 ## After restore — verify hardening posture
-bash /usr/local/bin/harden-check.sh
+/usr/local/bin/harden-check
 
 ## If SSH is unreachable after restore
 1. Use provider console (web-based VNC/serial)
