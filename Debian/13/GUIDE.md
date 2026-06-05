@@ -1,9 +1,9 @@
 # VPS Hardening Guide (Debian-13)
 
-|                   |                                          |
-| ----------------- | ---------------------------------------- |
-| **Target OS**     | Debian 13.x (Trixie — current "stable")  |
-| **Guide Version** | Debian-13-Rev-0                          |
+|					|											|
+| ----------------- | ----------------------------------------- |
+| **Target OS**		| Debian 13.x (Trixie — current "stable")	|
+| **Guide Version**	| Debian-13-Rev-1							|
 
 
 ## Contextual Preamble
@@ -28,45 +28,54 @@
 Set these once before running any commands. Every command in this guide references these variables — substitute your own values here and the rest of the guide follows automatically.
 
 ```bash
+# Create the persistent variables file with your configurations
+cat << EOF > /root/setup_variables.sh
 # ============================================================
-# Guide Variables — set these before running any commands
+# Guide Variables
 # ============================================================
-export VPS_USER="dan"                            # your rootless admin username
-export VPS_HOSTNAME="anila"                      # your server hostname
-export VPS_TIMEZONE="Asia/Jakarta"               # your timezone (timedatectl list-timezones)
-export VPS_SSH_PORT="32022"                      # your chosen non-standard SSH port
-export VPS_MIRROR="kartolo.sby.datautama.net.id" # your nearest Debian mirror
+export VPS_USER="dan"								# your rootless admin username
+export VPS_HOSTNAME="anila"							# your server hostname
+export VPS_TIMEZONE="Asia/Jakarta"					# your timezone (timedatectl list-timezones)
+export VPS_SSH_PORT="32022"							# your chosen non-standard SSH port
+export VPS_MIRROR="kartolo.sby.datautama.net.id"	# your nearest Debian mirror
+export VPS_IFACE="$(ip route show default | awk '/default/ {print $5}')"
+EOF
+
+# 3. Make the script executable and verify the contents
+chmod +x /root/setup_variables.sh
+
+source /root/setup_variables.sh
 ```
 
 > ⚠️ These variables are set in your current shell session only. If you disconnect and reconnect, re-run this block before continuing.
 
 ### Customisation Reference
 
-| Variable       | Example value                     | Description                                              |
-| -------------- | --------------------------------- | -------------------------------------------------------- |
-| `VPS_USER`     | `dan`                             | Rootless admin user created in Section 2                 |
-| `VPS_HOSTNAME` | `anila`                           | Server hostname set in Section 1                         |
-| `VPS_TIMEZONE` | `Asia/Jakarta`                    | Timezone set in Section 1                                |
-| `VPS_SSH_PORT` | `32022`                           | Non-standard SSH port used in Sections 3 and 4           |
-| `VPS_MIRROR`   | `kartolo.sby.datautama.net.id`    | Debian mirror used in Section 1; must be an official mirror listed at `debian.org/mirror/list` |
+| Variable			| Example value						| Description																						|
+| ----------------- | --------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `VPS_USER`		| `dan`								| Rootless admin user created in Section 2															|
+| `VPS_HOSTNAME`	| `anila`							| Server hostname set in Section 1																	|
+| `VPS_TIMEZONE`	| `Asia/Jakarta`					| Timezone set in Section 1																			|
+| `VPS_SSH_PORT`	| `32022`							| Non-standard SSH port used in Sections 3 and 4													|
+| `VPS_MIRROR`		| `kartolo.sby.datautama.net.id`	| Debian mirror used in Section 1; must be an official mirror listed at `debian.org/mirror/list`	|
 
 
 ## Section Order
 
-| #  | Section                                                                        |
-| -- | ------------------------------------------------------------------------------ |
-| 1  | [Operating System Baseline](#section-1--operating-system-baseline)             |
-| 2  | [User & Authentication](#section-2--user--authentication)                      |
-| 3  | [Secure Shell (SSH)](#section-3--secure-shell-ssh)                             |
-| 4  | [Network & Firewall](#section-4--network--firewall)                            |
-| 5  | [Package Integrity](#section-5--package-integrity)                             |
-| 6  | [Mandatory Access Control (MAC)](#section-6--mandatory-access-control-mac)     |
-| 7  | [Logging & Audit](#section-7--logging--audit)                                  |
-| 8  | [Kernel Hardening](#section-8--kernel-hardening)                               |
-| 9  | [Filesystem Hardening](#section-9--filesystem-hardening)                       |
-| 10 | [Performance Optimization](#section-10--performance-optimization)              |
-| 11 | [Intrusion Detection System](#section-11--intrusion-detection-system)          |
-| 12 | [Maintenance Hygiene](#section-12--maintenance-hygiene)                        |
+|  # | Section																		|
+| -- | ---------------------------------------------------------------------------- |
+|  1 | [Operating System Baseline](#section-1--operating-system-baseline)			|
+|  2 | [User & Authentication](#section-2--user--authentication)					|
+|  3 | [Secure Shell (SSH)](#section-3--secure-shell-ssh)							|
+|  4 | [Network & Firewall](#section-4--network--firewall)							|
+|  5 | [Package Integrity](#section-5--package-integrity)							|
+|  6 | [Mandatory Access Control (MAC)](#section-6--mandatory-access-control-mac)	|
+|  7 | [Logging & Audit](#section-7--logging--audit)								|
+|  8 | [Kernel Hardening](#section-8--kernel-hardening)								|
+|  9 | [Filesystem Hardening](#section-9--filesystem-hardening)						|
+| 10 | [Performance Optimization](#section-10--performance-optimization)			|
+| 11 | [Intrusion Detection System](#section-11--intrusion-detection-system)		|
+| 12 | [Maintenance Hygiene](#section-12--maintenance-hygiene)						|
 
 ---
 
@@ -98,8 +107,8 @@ A meaningful hostname prevents confusion in logs. Debian 13 defaults to `debian`
 The hostname must also be added to `/etc/hosts` immediately after being set. `sudo` performs a hostname lookup during initialization — if the hostname does not resolve, on some PAM configurations this causes the entire authentication stack to fail, making correct passwords appear wrong. `hostnamectl set-hostname` and `/etc/hosts` do not sync automatically.
 
 ```bash
-# Guide variables — re-export if reconnected since initial setup
-# export VPS_HOSTNAME="anila"
+# Guide variables
+source /root/setup-variables.sh
 
 hostnamectl set-hostname "$VPS_HOSTNAME"
 
@@ -135,17 +144,18 @@ Debian 13 uses DEB822-format sources in `/etc/apt/sources.list.d/debian.sources`
 ```bash
 # Test mirror reachability before committing:
 curl -o /dev/null -s -w "HTTP %{http_code} — Time: %{time_total}s\n" \
-  "https://${VPS_MIRROR}/debian/dists/trixie/Release"
+	"https://${VPS_MIRROR}/debian/dists/trixie/Release"
 # Expected: HTTP 200 — Time: <1s
 # If unreachable, use the default deb.debian.org and skip the mirror change
 
 # Backup sources.list:
 cp /etc/apt/sources.list /etc/apt/sources.list.bak
+rm /etc/apt/sources.list~
 
 # Backup debian.sources only if it exists:
 [ -f /etc/apt/sources.list.d/debian.sources ] && \
-  cp /etc/apt/sources.list.d/debian.sources \
-     /etc/apt/sources.list.d/debian.sources.bak
+	cp /etc/apt/sources.list.d/debian.sources \
+	/etc/apt/sources.list.d/debian.sources.bak
 
 # Note any additional provider sources before proceeding:
 ls /etc/apt/sources.list.d/
@@ -173,7 +183,7 @@ EOF
 
 # Empty sources.list to prevent duplicate processing:
 echo '# Replaced by /etc/apt/sources.list.d/debian.sources' \
-  > /etc/apt/sources.list
+	> /etc/apt/sources.list
 
 # Update metadata and verify the mirror is responding:
 apt update
@@ -184,8 +194,8 @@ apt update
 > ```bash
 > cp /etc/apt/sources.list.bak /etc/apt/sources.list
 > [ -f /etc/apt/sources.list.d/debian.sources.bak ] && \
->   cp /etc/apt/sources.list.d/debian.sources.bak \
->      /etc/apt/sources.list.d/debian.sources
+>	 cp /etc/apt/sources.list.d/debian.sources.bak \
+>			/etc/apt/sources.list.d/debian.sources
 > apt update
 > ```
 
@@ -198,7 +208,7 @@ APT enforces GPG signature verification by default — every package is checked 
 ```bash
 # Confirm no source has a [trusted=yes] bypass:
 grep -rE 'trusted=yes|allow-unauthenticated|AllowUnauthenticated' \
-  /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null
+	/etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null
 # Expected: no output — any result here is a security concern
 
 # Confirm Debian archive signing key is present:
@@ -207,7 +217,7 @@ ls /etc/apt/trusted.gpg.d/
 
 # Check global APT config for unauthenticated bypasses:
 grep -r 'AllowUnauthenticated\|allow-unauthenticated' \
-  /etc/apt/apt.conf.d/ 2>/dev/null
+	/etc/apt/apt.conf.d/ 2>/dev/null
 # Expected: no output
 
 # Full upgrade:
@@ -224,18 +234,20 @@ A minimal Debian 13 VPS image does not ship with the tools this guide depends on
 
 ```bash
 apt install -y \
-  nano \
-  zsh \
-  curl \
-  cron \
-  firewalld \
-  fail2ban \
-  auditd \
-  aide \
-  debsums \
-  apt-show-versions \
-  apparmor-utils \
-  libpam-pwquality
+	nano \
+	zsh \
+	curl \
+	cron \
+	firewalld \
+	fail2ban \
+	auditd \
+	aide \
+	debsums \
+	apt-show-versions \
+	apparmor-utils \
+	libpam-pwquality \
+	git \
+	apt-transport-https
 ```
 
 ---
@@ -249,7 +261,7 @@ apt install -y unattended-upgrades
 
 cat > /etc/apt/apt.conf.d/50unattended-upgrades << 'EOF'
 Unattended-Upgrade::Allowed-Origins {
-    "${distro_id}:${distro_codename}-security";
+	"${distro_id}:${distro_codename}-security";
 };
 Unattended-Upgrade::AutoFixInterruptedDpkg "true";
 Unattended-Upgrade::MinimalSteps "true";
@@ -338,7 +350,7 @@ The user has no password — `passwd -l` locks the password field in `/etc/shado
 
 ```bash
 # Guide variables — re-export if reconnected since initial setup
-# export VPS_USER="dan"
+source /root/setup_variables.sh
 
 useradd -m -s /bin/bash "$VPS_USER"
 # Lock the password field immediately — key-only access, no password
@@ -384,7 +396,7 @@ rm /tmp/sudoers-user
 
 # Verify the default sudoers file still has %sudo enabled:
 grep -E '^\s*%sudo' /etc/sudoers
-# Expected: %sudo   ALL=(ALL:ALL)    ALL
+# Expected: %sudo	 ALL=(ALL:ALL)		ALL
 ```
 
 ---
@@ -420,7 +432,7 @@ oh-my-zsh is installed via its official `install.sh` script fetched over HTTPS f
 
 ```bash
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" \
-  "" --unattended
+	"" --unattended
 
 # Verify:
 ls /root/.oh-my-zsh/
@@ -433,9 +445,12 @@ ls /root/.oh-my-zsh/
 We use `sudo -u` with `HOME` explicitly set rather than `su - $VPS_USER` to avoid the subshell/exit problem in a scripted context. This ensures oh-my-zsh is correctly owned by and configured for the user.
 
 ```bash
-sudo -u "$VPS_USER" HOME="/home/${VPS_USER}" \
-  sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" \
-  "" --unattended
+su - ${VPS_USER}"
+
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" \
+	"" --unattended
+
+exit
 
 # Verify:
 ls "/home/${VPS_USER}/.oh-my-zsh/"
@@ -501,11 +516,11 @@ The default Debian `common-auth` has `[success=1 default=ignore]` on `pam_unix.s
 
 After correct insertion, `common-auth` must contain:
 ```
-auth    required                    pam_faillock.so preauth
-auth    [success=2 default=ignore]  pam_unix.so nullok
-auth    [default=die]               pam_faillock.so authfail
-auth    requisite                   pam_deny.so
-auth    required                    pam_permit.so
+auth		required										pam_faillock.so preauth
+auth		[success=2 default=ignore]	pam_unix.so nullok
+auth		[default=die]							 pam_faillock.so authfail
+auth		requisite									 pam_deny.so
+auth		required										pam_permit.so
 ```
 
 Since the user has no password, faillock only triggers on sudo authentication failures (wrong root password). SSH key auth bypasses PAM password stacks entirely.
@@ -516,39 +531,39 @@ grep -n 'pam_faillock\|pam_unix' /etc/pam.d/common-auth
 
 # Only insert if faillock is not already present:
 if ! grep -q 'pam_faillock' /etc/pam.d/common-auth; then
-  # Insert preauth line before pam_unix:
-  sed -i '/^auth.*pam_unix\.so/i auth\trequired\t\t\t\tpam_faillock.so preauth' \
-    /etc/pam.d/common-auth
+	# Insert preauth line before pam_unix:
+	sed -i '/^auth.*pam_unix\.so/i auth\trequired\t\t\t\tpam_faillock.so preauth' \
+	/etc/pam.d/common-auth
 
-  # CRITICAL: increment success count from 1 to 2 BEFORE inserting authfail.
-  # success=1 would skip authfail and land on pam_deny — breaking all auth.
-  # success=2 skips authfail on success and lands on pam_permit — correct.
-  sed -i 's/\[success=1 default=ignore\]/[success=2 default=ignore]/' \
-    /etc/pam.d/common-auth
+	# CRITICAL: increment success count from 1 to 2 BEFORE inserting authfail.
+	# success=1 would skip authfail and land on pam_deny — breaking all auth.
+	# success=2 skips authfail on success and lands on pam_permit — correct.
+	sed -i 's/\[success=1 default=ignore\]/[success=2 default=ignore]/' \
+	/etc/pam.d/common-auth
 
-  # Insert authfail line after pam_unix:
-  sed -i '/^auth.*pam_unix\.so/a auth\t[default=die]\t\t\t\tpam_faillock.so authfail' \
-    /etc/pam.d/common-auth
+	# Insert authfail line after pam_unix:
+	sed -i '/^auth.*pam_unix\.so/a auth\t[default=die]\t\t\t\tpam_faillock.so authfail' \
+	/etc/pam.d/common-auth
 fi
 
 if ! grep -q 'pam_faillock' /etc/pam.d/common-account; then
-  echo 'account required    pam_faillock.so' >> /etc/pam.d/common-account
+	echo 'account required		pam_faillock.so' >> /etc/pam.d/common-account
 fi
 
 # Verify the stack — success= MUST be 2, not 1:
 grep -A6 'faillock\|pam_unix\|pam_deny\|pam_permit' /etc/pam.d/common-auth
 
 # Configure faillock parameters (5 failed attempts → 15 min lockout):
-sed -i 's/^#\s*deny\s*=.*/deny = 5/'                         /etc/security/faillock.conf
-sed -i 's/^#\s*unlock_time\s*=.*/unlock_time = 900/'         /etc/security/faillock.conf
-sed -i 's/^#\s*fail_interval\s*=.*/fail_interval = 900/'     /etc/security/faillock.conf
+sed -i 's/^#\s*deny\s*=.*/deny = 5/'												 /etc/security/faillock.conf
+sed -i 's/^#\s*unlock_time\s*=.*/unlock_time = 900/'				 /etc/security/faillock.conf
+sed -i 's/^#\s*fail_interval\s*=.*/fail_interval = 900/'		 /etc/security/faillock.conf
 
 # Prevent faillock from locking the root account itself.
 # Without this, repeated wrong sudo password attempts lock root out of PAM
 # entirely — including the hash lookup sudo needs to authenticate.
 sed -i 's/^#\s*even_deny_root\s*=.*/even_deny_root = false/' /etc/security/faillock.conf
 grep -q '^even_deny_root' /etc/security/faillock.conf || \
-  echo 'even_deny_root = false' >> /etc/security/faillock.conf
+	echo 'even_deny_root = false' >> /etc/security/faillock.conf
 
 # Verify:
 grep -E '^(deny|unlock_time|fail_interval|even_deny_root)' /etc/security/faillock.conf
@@ -572,10 +587,10 @@ grep -E '^(deny|unlock_time|fail_interval|even_deny_root)' /etc/security/failloc
 `libpam-pwquality` was installed in Section 1.5. Enforces password complexity when setting or changing passwords via `passwd`. Applies to root's password set in step 2.9 and any future password changes.
 
 ```bash
-sed -i 's/^#\s*minlen\s*=.*/minlen = 12/'       /etc/security/pwquality.conf
-sed -i 's/^#\s*minclass\s*=.*/minclass = 3/'    /etc/security/pwquality.conf
-sed -i 's/^#\s*maxrepeat\s*=.*/maxrepeat = 3/'  /etc/security/pwquality.conf
-sed -i 's/^#\s*usercheck\s*=.*/usercheck = 1/'  /etc/security/pwquality.conf
+sed -i 's/^#\s*minlen\s*=.*/minlen = 12/'			 /etc/security/pwquality.conf
+sed -i 's/^#\s*minclass\s*=.*/minclass = 3/'		/etc/security/pwquality.conf
+sed -i 's/^#\s*maxrepeat\s*=.*/maxrepeat = 3/'	/etc/security/pwquality.conf
+sed -i 's/^#\s*usercheck\s*=.*/usercheck = 1/'	/etc/security/pwquality.conf
 
 # Verify:
 grep -vE '^#|^$' /etc/security/pwquality.conf
@@ -635,7 +650,7 @@ The `.ssh` directory and `authorized_keys` file must be owned by the user, not r
 # Run on the SERVER as root:
 
 # Guide variables — re-export if reconnected since initial setup
-# export VPS_USER="dan"
+source /root/setup-variables.sh
 
 mkdir -p "/home/${VPS_USER}/.ssh"
 chmod 700 "/home/${VPS_USER}/.ssh"
@@ -684,15 +699,14 @@ Key settings in the hardened config: non-standard port, key-only auth, `KbdInter
 
 ```bash
 # Guide variables — re-export if reconnected since initial setup
-# export VPS_USER="dan"
-# export VPS_SSH_PORT="32022"
+source /root/setup-variables.sh
 
 cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
 
 # Move the cloud-init drop-in to a backup:
 [ -f /etc/ssh/sshd_config.d/50-cloud-init.conf ] && \
-  mv /etc/ssh/sshd_config.d/50-cloud-init.conf \
-     /etc/ssh/sshd_config.d/50-cloud-init.conf.bak
+	mv /etc/ssh/sshd_config.d/50-cloud-init.conf \
+	/etc/ssh/sshd_config.d/50-cloud-init.conf.bak
 
 cat > /etc/ssh/sshd_config << EOF
 # --- Port & Protocol ---
@@ -751,7 +765,7 @@ sshd -t
 
 ```bash
 # Guide variables — re-export if reconnected since initial setup
-# export VPS_SSH_PORT="32022"
+source /root/setup-variables.sh
 
 systemctl enable --now firewalld
 firewall-cmd --permanent --add-port="${VPS_SSH_PORT}/tcp"
@@ -770,18 +784,18 @@ Even on a non-standard port with key-only auth, automated scanners will eventual
 
 ```bash
 # Guide variables — re-export if reconnected since initial setup
-# export VPS_SSH_PORT="32022"
+source /root/setup-variables.sh
 
 cat > /etc/fail2ban/jail.d/sshd.local << EOF
 [sshd]
-enabled   = true
-port      = ${VPS_SSH_PORT}
-filter    = sshd
-backend   = systemd
-maxretry  = 3
-bantime   = 3600
-findtime  = 600
-banaction = firewallcmd-rich-rules
+enabled		= true
+port		= ${VPS_SSH_PORT}
+filter		= sshd
+backend		= systemd
+maxretry	= 3
+bantime		= 3600
+findtime	= 600
+banaction	= firewallcmd-rich-rules
 EOF
 
 systemctl enable --now fail2ban
@@ -802,23 +816,11 @@ Before restarting sshd, configure your local `~/.ssh/config` so the first connec
 # Add to ~/.ssh/config on your LOCAL machine:
 
 Host <VPS_HOSTNAME>
-    Hostname <your-server-ip>
-    User <VPS_USER>
-    Port <VPS_SSH_PORT>
-    IdentityFile ~/.ssh/your-key       # private key file, or .pub as hint for agent
-    IdentitiesOnly yes
-```
-
-For 1Password specifically: if the private key lives only in 1Password (no local private key file), use the `.pub` file as the hint and ensure `IdentityAgent` points to the 1Password agent socket, not `none`:
-
-```
-Host <VPS_HOSTNAME>
-    Hostname <your-server-ip>
-    User <VPS_USER>
-    Port <VPS_SSH_PORT>
-    IdentityFile ~/.ssh/your-key.pub   # .pub hint — 1Password agent does the signing
-    IdentitiesOnly yes
-    # Do NOT set IdentityAgent none here — the agent must be active to sign
+	Hostname <your-server-ip>
+	User <VPS_USER>
+	Port <VPS_SSH_PORT>
+	IdentityFile ~/.ssh/your-key			 # private key file, or .pub as hint for agent
+	IdentitiesOnly yes
 ```
 
 ---
@@ -908,9 +910,9 @@ firewall-cmd --get-active-zones
 # Inspect what is currently permitted:
 firewall-cmd --permanent --zone=public --list-services
 
-firewall-cmd --permanent --zone=public --remove-service=cockpit       2>/dev/null || true
+firewall-cmd --permanent --zone=public --remove-service=cockpit	2>/dev/null || true
 firewall-cmd --permanent --zone=public --remove-service=dhcpv6-client 2>/dev/null || true
-firewall-cmd --permanent --zone=public --remove-service=ssh           2>/dev/null || true
+firewall-cmd --permanent --zone=public --remove-service=ssh 2>/dev/null || true
 
 # Verify nothing else is permitted:
 firewall-cmd --permanent --zone=public --list-services
@@ -925,7 +927,7 @@ After removing default services, the only open inbound path should be the SSH po
 
 ```bash
 # Guide variables — re-export if reconnected since initial setup
-# export VPS_SSH_PORT="32022"
+source /root/setup-variables.sh
 
 firewall-cmd --permanent --zone=public --list-ports
 # Expected: <VPS_SSH_PORT>/tcp
@@ -956,8 +958,9 @@ firewall-cmd --zone=public --list-all
 Before migrating, capture the full existing network configuration — both IPv4 and IPv6. The migration in step 4.6 will mirror everything exactly into `systemd-networkd` format. Do not skip this step.
 
 ```bash
+source /root/setup-variables.sh
+
 # Identify the active network interface:
-export VPS_IFACE=$(ip route show default | awk '/default/ {print $5}')
 echo "Active interface: $VPS_IFACE"
 
 # Full interface configuration — IPv4 and IPv6:
@@ -972,9 +975,9 @@ cat /etc/network/interfaces 2>/dev/null || echo "No /etc/network/interfaces foun
 cat /etc/network/interfaces.d/* 2>/dev/null || echo "No interfaces.d files found"
 
 # Check which network manager is currently active:
-systemctl is-active networking       2>/dev/null
-systemctl is-active systemd-networkd 2>/dev/null
-systemctl is-active NetworkManager   2>/dev/null
+systemctl is-active networking			2>/dev/null
+systemctl is-active systemd-networkd	2>/dev/null
+systemctl is-active NetworkManager		2>/dev/null
 
 # DNS configuration:
 cat /etc/resolv.conf
@@ -982,15 +985,15 @@ cat /etc/resolv.conf
 
 From the output above, note all values before proceeding to step 4.6:
 
-| Value              | Where to find it                                      | Example                  |
-| ------------------ | ----------------------------------------------------- | ------------------------ |
-| Interface name     | `$VPS_IFACE`                                          | `eth0`                   |
-| IPv4 address/prefix| `ip addr show` — the `inet` line                     | `203.0.113.10/24`        |
-| IPv4 gateway       | `ip route show` — the `default via` line              | `203.0.113.1`            |
-| IPv6 address/prefix| `ip addr show` — the `inet6` line (scope global)     | `2001:db8::1/64`         |
-| IPv6 gateway       | `ip -6 route show` — the `default via` line           | `fe80::1`                |
-| DNS servers        | `/etc/resolv.conf` — the `nameserver` lines           | `1.1.1.1`, `8.8.8.8`    |
-| Config type        | `/etc/network/interfaces` — `dhcp`/`static`           | `static`                 |
+| Value					| Where to find it									| Example					|
+| --------------------- | ------------------------------------------------- | ------------------------- |
+| Interface name		| `$VPS_IFACE`										| `eth0`					|
+| IPv4 address/prefix	| `ip addr show` — the `inet` line					| `203.0.113.10/24`			|
+| IPv4 gateway			| `ip route show` — the `default via` line			| `203.0.113.1`				|
+| IPv6 address/prefix	| `ip addr show` — the `inet6` line (scope global)	| `2001:db8::1/64`			|
+| IPv6 gateway			| `ip -6 route show` — the `default via` line		| `fe80::1`					|
+| DNS servers			| `/etc/resolv.conf` — the `nameserver` lines		| `1.1.1.1`, `8.8.8.8`		|
+| Config type			| `/etc/network/interfaces` — `dhcp`/`static`		| `static`					|
 
 > **IPv6 note:** If `ip addr show` shows an `inet6` address with `scope global` — your provider assigns a static IPv6 address. If there is no `scope global` IPv6 address (only `scope link` for link-local) — your provider is IPv4 only and IPv6 can be disabled in the migration.
 
@@ -1006,7 +1009,7 @@ This step creates the `.network` file that mirrors the existing configuration ex
 
 ```bash
 # Guide variable — re-export if reconnected:
-# export VPS_IFACE="eth0"   # set to your actual interface name from step 4.5
+source /root/setup-variables.sh
 
 mkdir -p /etc/systemd/network
 
@@ -1016,30 +1019,30 @@ echo "Interface MAC: $VPS_MAC"
 
 # Detect IPv4 config type:
 if grep -q 'dhcp' /etc/network/interfaces 2>/dev/null; then
-  IPV4_TYPE="dhcp"
+	IPV4_TYPE="dhcp"
 else
-  IPV4_TYPE="static"
+	IPV4_TYPE="static"
 fi
 echo "IPv4 config type: $IPV4_TYPE"
 
 # Detect IPv6 — check for a global-scope address on this interface:
 IPV6_ADDR=$(ip -6 addr show "$VPS_IFACE" scope global 2>/dev/null \
-  | awk '/inet6/ {print $2}' | head -1)
+	| awk '/inet6/ {print $2}' | head -1)
 IPV6_GW=$(ip -6 route show default 2>/dev/null \
-  | awk '/default via/ {print $3}' | head -1)
+	| awk '/default via/ {print $3}' | head -1)
 
 if [ -n "$IPV6_ADDR" ]; then
-  echo "IPv6 detected: ${IPV6_ADDR} via ${IPV6_GW}"
-  IPV6_PRESENT=true
+	echo "IPv6 detected: ${IPV6_ADDR} via ${IPV6_GW}"
+	IPV6_PRESENT=true
 else
-  echo "No global IPv6 address detected — IPv6 will be disabled"
-  IPV6_PRESENT=false
+	echo "No global IPv6 address detected — IPv6 will be disabled"
+	IPV6_PRESENT=false
 fi
 
 # Capture IPv4 static values if needed:
 if [ "$IPV4_TYPE" = "static" ]; then
-  VPS_IP=$(ip addr show "$VPS_IFACE" | awk '/inet / {print $2}')
-  VPS_GW=$(ip route show default | awk '/default/ {print $3}')
+	VPS_IP=$(ip addr show "$VPS_IFACE" | awk '/inet / {print $2}')
+	VPS_GW=$(ip route show default | awk '/default/ {print $3}')
 fi
 
 # Capture DNS from current resolv.conf:
@@ -1048,43 +1051,43 @@ VPS_DNS2=$(awk '/^nameserver/ {print $2}' /etc/resolv.conf | sed -n '2p')
 
 # Build the .network file:
 {
-  echo "[Match]"
-  echo "MACAddress=${VPS_MAC}"
-  echo ""
-  echo "[Network]"
+	echo "[Match]"
+	echo "MACAddress=${VPS_MAC}"
+	echo ""
+	echo "[Network]"
 
-  if [ "$IPV4_TYPE" = "dhcp" ]; then
-    echo "DHCP=ipv4"
-  else
-    echo "Address=${VPS_IP}"
-    echo "Gateway=${VPS_GW}"
-  fi
+	if [ "$IPV4_TYPE" = "dhcp" ]; then
+		echo "DHCP=ipv4"
+	else
+		echo "Address=${VPS_IP}"
+		echo "Gateway=${VPS_GW}"
+	fi
 
-  [ -n "$VPS_DNS1" ] && echo "DNS=${VPS_DNS1}"
-  [ -n "$VPS_DNS2" ] && echo "DNS=${VPS_DNS2}"
+	[ -n "$VPS_DNS1" ] && echo "DNS=${VPS_DNS1}"
+	[ -n "$VPS_DNS2" ] && echo "DNS=${VPS_DNS2}"
 
-  if [ "$IPV6_PRESENT" = true ]; then
-    echo "Address=${IPV6_ADDR}"
-    echo "IPv6AcceptRA=no"
-  else
-    echo "IPv6AcceptRA=no"
-    echo "LinkLocalAddressing=ipv6"
-  fi
+	if [ "$IPV6_PRESENT" = true ]; then
+		echo "Address=${IPV6_ADDR}"
+		echo "IPv6AcceptRA=no"
+	else
+		echo "IPv6AcceptRA=no"
+		echo "LinkLocalAddressing=ipv6"
+	fi
 
-  if [ "$IPV4_TYPE" = "dhcp" ]; then
-    echo ""
-    echo "[DHCP]"
-    echo "UseDNS=yes"
-    echo "UseRoutes=yes"
-    echo "UseHostname=no"
-  fi
+	if [ "$IPV4_TYPE" = "dhcp" ]; then
+		echo ""
+		echo "[DHCP]"
+		echo "UseDNS=yes"
+		echo "UseRoutes=yes"
+		echo "UseHostname=no"
+	fi
 
-  if [ "$IPV6_PRESENT" = true ] && [ -n "$IPV6_GW" ]; then
-    echo ""
-    echo "[Route]"
-    echo "Gateway=${IPV6_GW}"
-    echo "GatewayOnLink=yes"
-  fi
+	if [ "$IPV6_PRESENT" = true ] && [ -n "$IPV6_GW" ]; then
+		echo ""
+		echo "[Route]"
+		echo "Gateway=${IPV6_GW}"
+		echo "GatewayOnLink=yes"
+	fi
 
 } > "/etc/systemd/network/10-${VPS_IFACE}.network"
 
@@ -1099,10 +1102,10 @@ cat "/etc/systemd/network/10-${VPS_IFACE}.network"
 ls -la "/etc/systemd/network/10-${VPS_IFACE}.network"
 echo "================================"
 echo "Compare against detected values:"
-echo "  MAC:  ${VPS_MAC}"
-echo "  IPv4: ${VPS_IP:-dhcp} via ${VPS_GW:-dhcp}"
-[ "$IPV6_PRESENT" = true ] && echo "  IPv6: ${IPV6_ADDR} via ${IPV6_GW}"
-echo "  DNS:  ${VPS_DNS1} ${VPS_DNS2}"
+echo "	MAC:	${VPS_MAC}"
+echo "	IPv4: ${VPS_IP:-dhcp} via ${VPS_GW:-dhcp}"
+[ "$IPV6_PRESENT" = true ] && echo "	IPv6: ${IPV6_ADDR} via ${IPV6_GW}"
+echo "	DNS:	${VPS_DNS1} ${VPS_DNS2}"
 ```
 
 > ⚠️ **Review the generated config and verify permissions before proceeding.** The `ls -la` output must show `-rw-r--r--` (644). If it shows `-rw-r-----` (640), run `chmod 644` on the file — systemd-networkd will silently fail to read it otherwise.
@@ -1168,7 +1171,7 @@ systemctl mask networking
 
 # NetworkManager if present:
 systemctl disable NetworkManager 2>/dev/null || true
-systemctl stop NetworkManager    2>/dev/null || true
+systemctl stop NetworkManager		2>/dev/null || true
 
 # Wait for systemd-networkd to fully re-establish routes:
 sleep 5
@@ -1252,7 +1255,7 @@ ip -6 route show
 echo "=== Active network services ==="
 systemctl is-active systemd-networkd
 systemctl is-active systemd-resolved
-systemctl is-active networking   # Expected: inactive
+systemctl is-active networking	 # Expected: inactive
 ```
 
 > **Note for service layering:** When adding services on top of this baseline, open only the exact ports needed:
@@ -1299,7 +1302,7 @@ APT's GPG enforcement was confirmed before the initial upgrade in Section 1.4. T
 ```bash
 # Check for trusted=yes overrides:
 grep -rE 'trusted=yes|allow-unauthenticated|AllowUnauthenticated' \
-  /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null
+	/etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null
 # Expected: no output
 
 # Verify Debian archive signing key is present:
@@ -1308,7 +1311,7 @@ ls /etc/apt/trusted.gpg.d/
 
 # Check global APT config for unauthenticated bypasses:
 grep -r 'AllowUnauthenticated\|allow-unauthenticated' \
-  /etc/apt/apt.conf.d/ 2>/dev/null
+	/etc/apt/apt.conf.d/ 2>/dev/null
 # Expected: no output
 ```
 
@@ -1342,7 +1345,7 @@ apt-cache policy
 ```bash
 debsums -c 2>/dev/null | tee /root/debsums-baseline.txt
 
-# Output format: <filepath>  FAILED
+# Output format: <filepath>	FAILED
 # Expected: modified config files only (anything you changed during setup)
 # Unexpected: modified binaries — investigate immediately
 ```
@@ -1433,7 +1436,7 @@ aa-status | grep 'profiles are in enforce mode'
 
 # List enforce-mode profile names:
 aa-status | awk '/in enforce mode/{found=1; next} found && /in complain mode/{exit} found{print}' \
-  | grep '^\s'
+	| grep '^\s'
 ```
 
 ---
@@ -1446,12 +1449,12 @@ Profiles in complain mode log denials without blocking. Every profile covering a
 aa-status | grep 'profiles are in complain mode'
 
 aa-status | awk '/in complain mode/{found=1; next} found && /processes have/{exit} found{print}' \
-  | grep '^\s'
+	| grep '^\s'
 
 # For each profile in complain mode:
-#   - Is the service running? systemctl is-active <service>
-#   - If yes and it matters: enforce it (see step 6.6)
-#   - If the service is not installed: leave in complain or remove
+#	 - Is the service running? systemctl is-active <service>
+#	 - If yes and it matters: enforce it (see step 6.6)
+#	 - If the service is not installed: leave in complain or remove
 ```
 
 ---
@@ -1465,10 +1468,10 @@ journalctl -k --grep='apparmor="DENIED"' --since=boot
 # No output = no denials — ideal state
 
 # Resolution hierarchy when denials exist:
-#   1. Fix the service configuration if the denial is caused by misconfiguration
-#   2. Add a local rule: /etc/apparmor.d/local/<profile-name>
-#   3. aa-complain /etc/apparmor.d/<profile> — temporary debug only
-#   Never: systemctl stop apparmor
+#	 1. Fix the service configuration if the denial is caused by misconfiguration
+#	 2. Add a local rule: /etc/apparmor.d/local/<profile-name>
+#	 3. aa-complain /etc/apparmor.d/<profile> — temporary debug only
+#	 Never: systemctl stop apparmor
 ```
 
 ---
@@ -1528,7 +1531,7 @@ By default on minimal installs, `journald` stores logs in memory only — all lo
 mkdir -p /var/log/journal
 sed -i 's/^#Storage=.*/Storage=persistent/' /etc/systemd/journald.conf
 grep -q '^Storage=' /etc/systemd/journald.conf || \
-  echo 'Storage=persistent' >> /etc/systemd/journald.conf
+	echo 'Storage=persistent' >> /etc/systemd/journald.conf
 ```
 
 ---
@@ -1540,7 +1543,7 @@ Persistent logs without a cap will grow unbounded and eventually fill the disk. 
 ```bash
 sed -i 's/^#SystemMaxUse=.*/SystemMaxUse=500M/' /etc/systemd/journald.conf
 grep -q '^SystemMaxUse=' /etc/systemd/journald.conf || \
-  echo 'SystemMaxUse=500M' >> /etc/systemd/journald.conf
+	echo 'SystemMaxUse=500M' >> /etc/systemd/journald.conf
 
 systemctl restart systemd-journald
 
@@ -1565,9 +1568,9 @@ systemctl enable auditd
 `auditd` manages its own log files in `/var/log/audit/`. A rolling set of 50MB per file, 10 files = 500MB maximum audit log retention.
 
 ```bash
-sed -i 's/^max_log_file\s*=.*/max_log_file = 50/'                   /etc/audit/auditd.conf
-sed -i 's/^num_logs\s*=.*/num_logs = 10/'                           /etc/audit/auditd.conf
-sed -i 's/^max_log_file_action\s*=.*/max_log_file_action = ROTATE/' /etc/audit/auditd.conf
+sed -i 's/^max_log_file\s*=.*/max_log_file = 50/'					/etc/audit/auditd.conf
+sed -i 's/^num_logs\s*=.*/num_logs = 10/'							/etc/audit/auditd.conf
+sed -i 's/^max_log_file_action\s*=.*/max_log_file_action = ROTATE/'	/etc/audit/auditd.conf
 
 # Verify:
 grep -E 'max_log_file|num_logs|max_log_file_action' /etc/audit/auditd.conf
@@ -1590,42 +1593,42 @@ cat > /etc/audit/rules.d/hardening.rules << 'EOF'
 -f 1
 
 # --- Authentication & authorization ---
--w /etc/passwd          -p wa -k identity
--w /etc/shadow          -p wa -k identity
--w /etc/group           -p wa -k identity
--w /etc/gshadow         -p wa -k identity
--w /etc/sudoers         -p wa -k sudoers
--w /etc/sudoers.d/      -p wa -k sudoers
+-w /etc/passwd						-p wa -k identity
+-w /etc/shadow						-p wa -k identity
+-w /etc/group						-p wa -k identity
+-w /etc/gshadow						-p wa -k identity
+-w /etc/sudoers						-p wa -k sudoers
+-w /etc/sudoers.d/					-p wa -k sudoers
 
 # --- SSH configuration ---
--w /etc/ssh/sshd_config -p wa -k sshd_config
+-w /etc/ssh/sshd_config				-p wa -k sshd_config
 
 # --- Privilege escalation ---
--w /bin/su              -p x  -k privilege_escalation
--w /usr/bin/sudo        -p x  -k privilege_escalation
+-w /bin/su							-p x	-k privilege_escalation
+-w /usr/bin/sudo					-p x	-k privilege_escalation
 
 # --- User and group management tools ---
--w /usr/sbin/useradd    -p x  -k user_mgmt
--w /usr/sbin/usermod    -p x  -k user_mgmt
--w /usr/sbin/userdel    -p x  -k user_mgmt
--w /usr/sbin/groupadd   -p x  -k user_mgmt
--w /usr/sbin/groupmod   -p x  -k user_mgmt
--w /usr/sbin/groupdel   -p x  -k user_mgmt
+-w /usr/sbin/useradd				-p x	-k user_mgmt
+-w /usr/sbin/usermod				-p x	-k user_mgmt
+-w /usr/sbin/userdel				-p x	-k user_mgmt
+-w /usr/sbin/groupadd				-p x	-k user_mgmt
+-w /usr/sbin/groupmod				-p x	-k user_mgmt
+-w /usr/sbin/groupdel				-p x	-k user_mgmt
 
 # --- Network configuration ---
--w /etc/hosts                      -p wa -k network_config
--w /etc/systemd/network/           -p wa -k network_config
--w /etc/systemd/resolved.conf.d/   -p wa -k network_config
+-w /etc/hosts						-p wa -k network_config
+-w /etc/systemd/network/			-p wa -k network_config
+-w /etc/systemd/resolved.conf.d/	-p wa -k network_config
 
 # --- Kernel module loading ---
--w /sbin/insmod         -p x  -k kernel_modules
--w /sbin/rmmod          -p x  -k kernel_modules
--w /sbin/modprobe       -p x  -k kernel_modules
+-w /sbin/insmod						-p x	-k kernel_modules
+-w /sbin/rmmod						-p x	-k kernel_modules
+-w /sbin/modprobe					-p x	-k kernel_modules
 
 # --- Login and session events ---
--w /var/log/lastlog     -p wa -k logins
--w /run/faillock/       -p wa -k logins
--w /var/lib/faillock/   -p wa -k logins
+-w /var/log/lastlog					-p wa -k logins
+-w /run/faillock/					-p wa -k logins
+-w /var/lib/faillock/				-p wa -k logins
 
 # --- Immutable flag: lock rules at runtime ---
 # -e 2
@@ -1677,11 +1680,11 @@ ls -lh /var/log/audit/
 
 > **Querying audit logs:**
 > ```bash
-> ausearch -k identity              # passwd/shadow/group changes
-> ausearch -k privilege_escalation  # all sudo/su usage
-> ausearch -k sshd_config           # sshd_config modifications
-> ausearch -k network_config        # network configuration changes
-> aureport --summary                # summarised report of all events
+> ausearch -k identity							# passwd/shadow/group changes
+> ausearch -k privilege_escalation	# all sudo/su usage
+> ausearch -k sshd_config					 # sshd_config modifications
+> ausearch -k network_config				# network configuration changes
+> aureport --summary								# summarised report of all events
 > ```
 
 > **Reloading rules on a running system:**
@@ -1876,7 +1879,7 @@ By default every user can browse `/proc` and see all running processes — inclu
 
 ```bash
 # Guide variables — re-export if reconnected:
-# export VPS_USER="dan"
+source /root/setup-variables.sh
 
 # Create a dedicated group for processes that need full /proc visibility:
 groupadd -r procadmin
@@ -1884,7 +1887,7 @@ usermod -aG procadmin "$VPS_USER"
 
 # Add to fstab:
 grep -q 'hidepid' /etc/fstab || \
-  echo 'proc /proc proc defaults,hidepid=2,gid=procadmin 0 0' >> /etc/fstab
+	echo 'proc /proc proc defaults,hidepid=2,gid=procadmin 0 0' >> /etc/fstab
 
 # Remount immediately:
 mount -o remount,hidepid=2,gid=procadmin /proc
@@ -1896,7 +1899,7 @@ findmnt /proc
 > Some systemd services read `/proc` entries of other processes during startup. If any service fails after applying `hidepid=2`, add it to the `procadmin` group:
 > ```bash
 > usermod -aG procadmin systemd-logind 2>/dev/null || true
-> usermod -aG procadmin polkitd        2>/dev/null || true
+> usermod -aG procadmin polkitd				2>/dev/null || true
 > ```
 
 ---
@@ -1907,7 +1910,7 @@ Every unnecessary SUID binary is a potential privilege escalation path. Review t
 
 ```bash
 find / -xdev \( -perm -4000 -o -perm -2000 \) -type f \
-  2>/dev/null | tee /root/suid-sgid-baseline.txt
+	2>/dev/null | tee /root/suid-sgid-baseline.txt
 
 # Common legitimate SUID binaries on Debian (keep these):
 # /usr/bin/passwd, /usr/bin/su, /usr/bin/sudo, /usr/bin/newgrp
@@ -1915,8 +1918,8 @@ find / -xdev \( -perm -4000 -o -perm -2000 \) -type f \
 # /usr/sbin/unix_chkpwd, /usr/bin/gpasswd
 
 # Remove SUID/SGID bit from anything not explicitly needed:
-# chmod u-s /path/to/binary   ← removes SUID
-# chmod g-s /path/to/binary   ← removes SGID
+# chmod u-s /path/to/binary	 ← removes SUID
+# chmod g-s /path/to/binary	 ← removes SGID
 ```
 
 ---
@@ -1927,23 +1930,23 @@ Outside of intentional shared paths like `/tmp` and `/dev/shm`, world-writable f
 
 ```bash
 find / -xdev \
-  -not \( -path '/tmp'     -prune \) \
-  -not \( -path '/dev/shm' -prune \) \
-  -not \( -path '/proc'    -prune \) \
-  -not \( -path '/sys'     -prune \) \
-  -perm -0002 -type f 2>/dev/null \
-  | tee /root/world-writable-baseline.txt
+	-not \( -path '/tmp' -prune \) \
+	-not \( -path '/dev/shm' -prune \) \
+	-not \( -path '/proc' -prune \) \
+	-not \( -path '/sys' -prune \) \
+	-perm -0002 -type f 2>/dev/null \
+	| tee /root/world-writable-baseline.txt
 
 # Review and correct each entry:
 # chmod o-w /path/to/file
 
 # Also check world-writable directories:
 find / -xdev \
-  -not \( -path '/tmp'     -prune \) \
-  -not \( -path '/dev/shm' -prune \) \
-  -not \( -path '/proc'    -prune \) \
-  -not \( -path '/sys'     -prune \) \
-  -perm -0002 -type d 2>/dev/null
+	-not \( -path '/tmp' -prune \) \
+	-not \( -path '/dev/shm' -prune \) \
+	-not \( -path '/proc' -prune \) \
+	-not \( -path '/sys' -prune \) \
+	-perm -0002 -type d 2>/dev/null
 ```
 
 ---
@@ -1962,14 +1965,14 @@ chattr +i /etc/audit/rules.d/hardening.rules
 
 # Guard — 99-performance.conf may not exist yet:
 [ -f /etc/sysctl.d/99-performance.conf ] && \
-  chattr +i /etc/sysctl.d/99-performance.conf
+	chattr +i /etc/sysctl.d/99-performance.conf
 
 # Verify (the 'i' flag should be present):
 lsattr /etc/ssh/sshd_config
 lsattr /etc/sysctl.d/99-hardening.conf
 
 # To temporarily modify any of these files later:
-# chattr -i /path/to/file  →  make changes  →  chattr +i /path/to/file
+# chattr -i /path/to/file	→	make changes	→	chattr +i /path/to/file
 ```
 
 ---
@@ -2092,11 +2095,11 @@ lsattr /etc/sysctl.d/99-performance.conf
 
 ### Resource Profile
 
-| Operation      | Duration | RAM Usage | CPU           | Disk I/O   |
-| -------------- | -------- | --------- | ------------- | ---------- |
-| `aide --init`  | 2–5 min  | ~80–120MB | 100% (1 core) | Heavy read |
-| `aide --check` | 1–3 min  | ~60–90MB  | 100% (1 core) | Heavy read |
-| Idle           | —        | 0         | 0             | None       |
+| Operation			| Duration	| RAM Usage	| CPU			| Disk I/O		|
+| ----------------- | --------- | --------- | ------------- | ------------- |
+| `aide --init`		| 2–5 min	| ~80–120MB	| 100% (1 core) | Heavy read	|
+| `aide --check`	| 1–3 min	| ~60–90MB	| 100% (1 core) | Heavy read	|
+| Idle				| —			| 0			| 0				| None			|
 
 All scans run with `nice -n 19 ionice -c 3` to minimize impact on live services.
 
@@ -2157,14 +2160,14 @@ BOOT = sha256+sha512+ftype+p+n+u+g+s+acl+xattrs
 # ============================================================
 # Monitored paths
 # ============================================================
-/boot                   BOOT
-/bin                    NORMAL
-/sbin                   NORMAL
-/usr/bin                NORMAL
-/usr/sbin               NORMAL
-/lib/modules            NORMAL
-/root                   NORMAL
-/etc                    NORMAL
+/boot				BOOT
+/bin				NORMAL
+/sbin				NORMAL
+/usr/bin			NORMAL
+/usr/sbin			NORMAL
+/lib/modules		NORMAL
+/root				NORMAL
+/etc				NORMAL
 
 # ============================================================
 # Exclusions within monitored paths
@@ -2228,7 +2231,7 @@ nice -n 19 ionice -c 3 aide --config=/etc/aide/aide.conf --check
 #### 11.5 — Create a resource-conscious check script
 
 ```bash
-cat > /usr/local/bin/aide-check.sh << 'EOF'
+cat > /usr/local/bin/aide-check << 'EOF'
 #!/bin/bash
 # AIDE integrity check — resource-conscious wrapper
 
@@ -2236,7 +2239,7 @@ LOG=/var/log/aide/aide-check.log
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
 echo "========================================" >> "$LOG"
-echo "AIDE check started: $TIMESTAMP"          >> "$LOG"
+echo "AIDE check started: $TIMESTAMP"			>> "$LOG"
 echo "========================================" >> "$LOG"
 
 nice -n 19 ionice -c 3 aide --config=/etc/aide/aide.conf --check >> "$LOG" 2>&1
@@ -2252,16 +2255,16 @@ echo "AIDE check finished: $(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG"
 # 4 = changed files
 # 8+ = errors during execution
 if [ $EXIT_CODE -eq 0 ]; then
-  echo "RESULT: CLEAN — no changes detected"                               >> "$LOG"
+	echo "RESULT: CLEAN — no changes detected"	>> "$LOG"
 elif [ $((EXIT_CODE & 8)) -ne 0 ] || [ $EXIT_CODE -ge 16 ]; then
-  echo "RESULT: ERROR — AIDE encountered a problem (exit code: $EXIT_CODE)" >> "$LOG"
+	echo "RESULT: ERROR — AIDE encountered a problem (exit code: $EXIT_CODE)"	>> "$LOG"
 else
-  echo "RESULT: CHANGES DETECTED — review log (exit code: $EXIT_CODE)"    >> "$LOG"
+	echo "RESULT: CHANGES DETECTED — review log (exit code: $EXIT_CODE)"		>> "$LOG"
 fi
 EOF
 
-chmod 700 /usr/local/bin/aide-check.sh
-chown root:root /usr/local/bin/aide-check.sh
+chmod 700 /usr/local/bin/aide-check
+chown root:root /usr/local/bin/aide-check
 ```
 
 ---
@@ -2270,8 +2273,8 @@ chown root:root /usr/local/bin/aide-check.sh
 
 ```bash
 # Every Monday at 3:00 AM:
-echo '0 3 * * 1 root /usr/local/bin/aide-check.sh' \
-  > /etc/cron.d/aide-check
+echo '0 3 * * 1 root /usr/local/bin/aide-check' \
+	> /etc/cron.d/aide-check
 
 chmod 644 /etc/cron.d/aide-check
 
@@ -2279,7 +2282,7 @@ chmod 644 /etc/cron.d/aide-check
 cat /etc/cron.d/aide-check
 
 # Run once manually to confirm the script works and to seed the log:
-bash /usr/local/bin/aide-check.sh
+/usr/local/bin/aide-check
 tail -5 /var/log/aide/aide-check.log
 # Expected last line: RESULT: CLEAN — no changes detected
 ```
@@ -2366,8 +2369,8 @@ systemctl list-units --type=service --state=running
 
 echo "=== Auditd monthly summary ==="
 aureport --summary \
-  --start "$(date -d '1 month ago' '+%m/%d/%Y')" \
-  --end   "$(date '+%m/%d/%Y')"
+	--start "$(date -d '1 month ago' '+%m/%d/%Y')" \
+	--end	 "$(date '+%m/%d/%Y')"
 
 echo "=== Disk usage ==="
 df -h
@@ -2386,32 +2389,34 @@ debsums -c 2>/dev/null
 
 echo "=== World-writable files drift ==="
 find / -xdev \
-  -not \( -path '/tmp'     -prune \) \
-  -not \( -path '/dev/shm' -prune \) \
-  -not \( -path '/proc'    -prune \) \
-  -not \( -path '/sys'     -prune \) \
-  -perm -0002 -type f 2>/dev/null
+	-not \( -path '/tmp' -prune \) \
+	-not \( -path '/dev/shm' -prune \) \
+	-not \( -path '/proc' -prune \) \
+	-not \( -path '/sys' -prune \) \
+	-perm -0002 -type f 2>/dev/null
 
 echo "=== New SUID/SGID binaries since baseline ==="
 find / -xdev \( -perm -4000 -o -perm -2000 \) -type f 2>/dev/null \
-  | diff /root/suid-sgid-baseline.txt - 2>/dev/null \
-  | grep '^>'
+	| diff /root/suid-sgid-baseline.txt - 2>/dev/null \
+	| grep '^>'
 ```
 
 ---
 
-#### 12.4 — Hardening health-check script
+#### 12.4 — System health-check script
 
 Runs key verification commands from every section and produces a concise pass/fail report. Run after every reboot or provider maintenance window.
 
 ```bash
 # Guide variables — re-export if reconnected:
-# export VPS_USER="dan"
-# export VPS_SSH_PORT="32022"
+source /root/setup-variables.sh
 
-cat > /usr/local/bin/harden-check.sh << EOF
+cat > /usr/local/bin/system-health-check << EOF
 #!/bin/bash
-# Hardening posture health check — Debian 13
+# System Posture Health Check
+# Target OS: Debian 13
+# Written by: Danang Galuh Tegar Prasetyo
+#             https://github.com/danang-id
 
 PASS="\e[32mPASS\e[0m"
 FAIL="\e[31mFAIL\e[0m"
@@ -2419,92 +2424,92 @@ VPS_USER="${VPS_USER}"
 VPS_SSH_PORT="${VPS_SSH_PORT}"
 
 check() {
-  local label="\$1"
-  local result="\$2"
-  local expected="\$3"
-  if echo "\$result" | grep -qE "\$expected"; then
-    echo -e "[\$PASS] \$label"
-  else
-    echo -e "[\$FAIL] \$label"
-    echo "       Got: \$result"
-  fi
+	local label="\$1"
+	local result="\$2"
+	local expected="\$3"
+	if echo "\$result" | grep -qE "\$expected"; then
+	echo -e "[\$PASS] \$label"
+	else
+	echo -e "[\$FAIL] \$label"
+	echo "	Got: \$result"
+	fi
 }
 
 echo "================================================"
-echo " Hardening Health Check — \$(date '+%Y-%m-%d %H:%M:%S')"
+echo " System Health Check — \$(date '+%Y-%m-%d %H:%M:%S')"
 echo "================================================"
 
 # Section 1 — OS Baseline
-check "timesyncd active"           "\$(systemctl is-active systemd-timesyncd)"             "active"
-check "unattended-upgrades on"     "\$(systemctl is-enabled unattended-upgrades)"          "enabled"
-check "hostname in /etc/hosts"     "\$(grep -c "\$(hostname)" /etc/hosts)"                "[1-9]"
+check "timesyncd active"			"\$(systemctl is-active systemd-timesyncd)"						"active"
+check "unattended-upgrades on"		"\$(systemctl is-enabled unattended-upgrades)"					"enabled"
+check "hostname in /etc/hosts"		"\$(grep -c "\$(hostname)" /etc/hosts)"							"[1-9]"
 
 # Section 2 — User & Auth
-check "root SSH login blocked"     "\$(sshd -T | grep permitrootlogin)"                   "no"
-check "user password locked"       "\$(passwd -S \$VPS_USER | awk '{print \$2}')"          "L"
-check "user in sudo group"         "\$(groups \$VPS_USER)"                                 "sudo"
-check "sudo rootpw configured"     "\$(cat /etc/sudoers.d/\$VPS_USER 2>/dev/null)"         "rootpw"
-check "PAM faillock success=2"     "\$(grep pam_unix /etc/pam.d/common-auth)"              "success=2"
+check "root SSH login blocked"		"\$(sshd -T | grep permitrootlogin)"							"no"
+check "user password locked"		"\$(passwd -S \$VPS_USER | awk '{print \$2}')"					"L"
+check "user in sudo group"			"\$(groups \$VPS_USER)"											"sudo"
+check "sudo rootpw configured"		"\$(cat /etc/sudoers.d/\$VPS_USER 2>/dev/null)"					"rootpw"
+check "PAM faillock success=2"		"\$(grep pam_unix /etc/pam.d/common-auth)"						"success=2"
 
 # Section 3 — SSH
-check "sshd running"               "\$(systemctl is-active sshd)"                          "active"
-check "sshd on correct port"       "\$(ss -tlnp | grep sshd)"                             "\${VPS_SSH_PORT}"
-check "PasswordAuth off"           "\$(sshd -T | grep passwordauthentication)"             "no"
-check "KbdInteractive off"         "\$(sshd -T | grep kbdinteractiveauthentication)"       "no"
-check "UsePAM enabled"             "\$(sshd -T | grep usepam)"                             "yes"
-check "fail2ban running"           "\$(systemctl is-active fail2ban)"                      "active"
+check "sshd running"				"\$(systemctl is-active sshd)"									"active"
+check "sshd on correct port"		"\$(ss -tlnp | grep sshd)"										"\${VPS_SSH_PORT}"
+check "PasswordAuth off"			"\$(sshd -T | grep passwordauthentication)"						"no"
+check "KbdInteractive off"			"\$(sshd -T | grep kbdinteractiveauthentication)"				"no"
+check "UsePAM enabled"				"\$(sshd -T | grep usepam)"										"yes"
+check "fail2ban running"			"\$(systemctl is-active fail2ban)"								"active"
 
 # Section 4 — Network & Firewall
-check "systemd-networkd active"    "\$(systemctl is-active systemd-networkd)"              "active"
-check "systemd-resolved active"    "\$(systemctl is-active systemd-resolved)"              "active"
-check "legacy networking masked"   "\$(systemctl is-enabled networking 2>/dev/null)"       "masked"
-check "firewalld running"          "\$(systemctl is-active firewalld)"                     "active"
-check "SSH port open"              "\$(firewall-cmd --zone=public --list-ports)"           "\${VPS_SSH_PORT}"
+check "systemd-networkd active"		"\$(systemctl is-active systemd-networkd)"						"active"
+check "systemd-resolved active"		"\$(systemctl is-active systemd-resolved)"						"active"
+check "legacy networking masked"	"\$(systemctl is-enabled networking 2>/dev/null)"				"masked"
+check "firewalld running"			"\$(systemctl is-active firewalld)"								"active"
+check "SSH port open"				"\$(firewall-cmd --zone=public --list-ports)"					"\${VPS_SSH_PORT}"
 
 # Section 6 — AppArmor
-check "AppArmor module loaded"     "\$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)" "Y"
-check "AppArmor service active"    "\$(systemctl is-active apparmor)"                      "active"
+check "AppArmor module loaded"		"\$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)"	"Y"
+check "AppArmor service active"		"\$(systemctl is-active apparmor)"								"active"
 
-SSH_DENIALS=\$(journalctl -k --grep='apparmor="DENIED".*sshd' --since=boot 2>/dev/null | wc -l)
+SSH_DENIALS=\$(journalctl -k --grep='apparmor="DENIED".*sshd' 2>/dev/null | wc -l)
 if [ "\$SSH_DENIALS" -eq 0 ]; then
-  echo -e "[\$PASS] No AppArmor sshd denials"
+	echo -e "[\$PASS] No AppArmor sshd denials"
 else
-  echo -e "[\$FAIL] AppArmor sshd denials found: \$SSH_DENIALS"
+	echo -e "[\$FAIL] AppArmor sshd denials found: \$SSH_DENIALS"
 fi
 
 # Section 7 — Audit & Logging
-check "auditd running"             "\$(systemctl is-active auditd)"                        "active"
-check "auditd rules loaded"        "\$(auditctl -l | wc -l)"                               "[1-9]"
-check "journald persistent"        "\$(journalctl --disk-usage | grep 'Archived')"         "M|G"
+check "auditd running"				"\$(systemctl is-active auditd)"								"active"
+check "auditd rules loaded"			"\$(auditctl -l | wc -l)"										"[1-9]"
+check "journald persistent"			"\$(journalctl --disk-usage | grep 'Archived')"					"M|G"
 
 # Section 8 — Kernel hardening
-check "ip_forward disabled"        "\$(sysctl -n net.ipv4.ip_forward)"                    "0"
-check "SYN cookies enabled"        "\$(sysctl -n net.ipv4.tcp_syncookies)"                 "1"
-check "ASLR enabled"               "\$(sysctl -n kernel.randomize_va_space)"               "2"
-check "dmesg restricted"           "\$(sysctl -n kernel.dmesg_restrict)"                   "1"
+check "ip_forward disabled"			"\$(sysctl -n net.ipv4.ip_forward)"								"0"
+check "SYN cookies enabled"			"\$(sysctl -n net.ipv4.tcp_syncookies)"							"1"
+check "ASLR enabled"				"\$(sysctl -n kernel.randomize_va_space)"						"2"
+check "dmesg restricted"			"\$(sysctl -n kernel.dmesg_restrict)"							"1"
 
 # Section 9 — Filesystem
-check "/tmp noexec"                "\$(findmnt /tmp     | grep noexec)"                    "noexec"
-check "/dev/shm noexec"            "\$(findmnt /dev/shm | grep noexec)"                    "noexec"
+check "/tmp noexec"					"\$(findmnt /tmp		 | grep noexec)"						"noexec"
+check "/dev/shm noexec"				"\$(findmnt /dev/shm | grep noexec)"							"noexec"
 
 # Section 10 — Performance
-check "swap active"                "\$(swapon --show | grep swapfile)"                     "swapfile"
-check "swappiness at 10"           "\$(sysctl -n vm.swappiness)"                           "10"
+check "swap active"					"\$(swapon --show | grep swapfile)"								"swapfile"
+check "swappiness at 10"			"\$(sysctl -n vm.swappiness)"									"10"
 
 # Section 11 — AIDE
-check "AIDE database exists"       "\$(ls /var/lib/aide/aide.db.gz 2>/dev/null)"           "aide.db.gz"
-check "AIDE cron scheduled"        "\$(cat /etc/cron.d/aide-check 2>/dev/null)"            "aide-check.sh"
+check "AIDE database exists"		"\$(ls /var/lib/aide/aide.db.gz 2>/dev/null)"					"aide.db.gz"
+check "AIDE cron scheduled"			"\$(cat /etc/cron.d/aide-check 2>/dev/null)"					"aide-check"
 
 echo "================================================"
 echo " Check complete"
 echo "================================================"
 EOF
 
-chmod 700 /usr/local/bin/harden-check.sh
-chown root:root /usr/local/bin/harden-check.sh
+chmod 700 /usr/local/bin/system-health-check
+chown root:root /usr/local/bin/system-health-check
 
 # Run immediately to confirm baseline passes:
-bash /usr/local/bin/harden-check.sh
+/usr/local/bin/system-health-check
 ```
 
 ---
@@ -2529,10 +2534,10 @@ bash /usr/local/bin/harden-check.sh
 ## If SSH is unreachable after restore
 1. Use provider console (web-based VNC/serial)
 2. Log in as the rootless user
-3. Check sshd:            sudo systemctl status sshd
-4. Check firewall:        sudo firewall-cmd --list-ports
-5. Check network:         networkctl status
-6. Check AppArmor:        sudo systemctl status apparmor && sudo aa-status
+3. Check sshd:						sudo systemctl status sshd
+4. Check firewall:				sudo firewall-cmd --list-ports
+5. Check network:				 networkctl status
+6. Check AppArmor:				sudo systemctl status apparmor && sudo aa-status
 
 ## Emergency: if locked out completely
 1. Provider console → log in as the rootless user
@@ -2561,18 +2566,18 @@ echo "AIDE database updated to include ROLLBACK.md"
 Run sections in this exact order. Do not skip ahead.
 
 ```
-1  → OS Baseline           (updates, essentials, unattended-upgrades)
-2  → User & Auth           (create user, lock root)
-3  → SSH Hardening         (keys, authorized_keys ownership, sshd_config, client config, fail2ban)
-4  → Network & Firewall    (firewalld baseline, migrate to systemd-networkd, harden)
-5  → Package Integrity     (APT GPG re-audit, debsums, apt-show-versions)
-6  → AppArmor              (confirm loaded, audit profiles and denials)
-7  → Audit & Logging       (auditd rules, journald persistent)
-8  → Kernel Hardening      (sysctl security)
-9  → Filesystem Hardening  (tmp/shm/proc, SUID sweep, chattr)
-10 → Performance           (swapfile, sysctl performance)
-11 → AIDE                  (init database LAST — after all changes)
-12 → Maintenance Hygiene   (scripts, cron, rollback doc)
+1	→ OS Baseline				(updates, essentials, unattended-upgrades)
+2	→ User & Auth				(create user, lock root)
+3	→ SSH Hardening				(keys, authorized_keys ownership, sshd_config, client config, fail2ban)
+4	→ Network & Firewall		(firewalld baseline, migrate to systemd-networkd, harden)
+5	→ Package Integrity			(APT GPG re-audit, debsums, apt-show-versions)
+6	→ AppArmor					(confirm loaded, audit profiles and denials)
+7	→ Audit & Logging			(auditd rules, journald persistent)
+8	→ Kernel Hardening			(sysctl security)
+9	→ Filesystem Hardening		(tmp/shm/proc, SUID sweep, chattr)
+10  → Performance				(swapfile, sysctl performance)
+11  → AIDE						(init database LAST — after all changes)
+12  → Maintenance Hygiene		(scripts, cron, rollback doc)
 ```
 
 > ⚠️ **AIDE `--init` must be the final hardening action.** The database captures the trusted baseline state — any change made after `--init` will appear as a false alert on the next check.
