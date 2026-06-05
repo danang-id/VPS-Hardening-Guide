@@ -108,7 +108,7 @@ The hostname must also be added to `/etc/hosts` immediately after being set. `su
 
 ```bash
 # Guide variables
-source /root/setup-variables.sh
+source /root/setup_variables.sh
 
 hostnamectl set-hostname "$VPS_HOSTNAME"
 
@@ -445,7 +445,7 @@ ls /root/.oh-my-zsh/
 We use `sudo -u` with `HOME` explicitly set rather than `su - $VPS_USER` to avoid the subshell/exit problem in a scripted context. This ensures oh-my-zsh is correctly owned by and configured for the user.
 
 ```bash
-su - ${VPS_USER}"
+su - "${VPS_USER}"
 
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" \
 	"" --unattended
@@ -650,7 +650,7 @@ The `.ssh` directory and `authorized_keys` file must be owned by the user, not r
 # Run on the SERVER as root:
 
 # Guide variables — re-export if reconnected since initial setup
-source /root/setup-variables.sh
+source /root/setup_variables.sh
 
 mkdir -p "/home/${VPS_USER}/.ssh"
 chmod 700 "/home/${VPS_USER}/.ssh"
@@ -699,7 +699,7 @@ Key settings in the hardened config: non-standard port, key-only auth, `KbdInter
 
 ```bash
 # Guide variables — re-export if reconnected since initial setup
-source /root/setup-variables.sh
+source /root/setup_variables.sh
 
 cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
 
@@ -765,7 +765,7 @@ sshd -t
 
 ```bash
 # Guide variables — re-export if reconnected since initial setup
-source /root/setup-variables.sh
+source /root/setup_variables.sh
 
 systemctl enable --now firewalld
 firewall-cmd --permanent --add-port="${VPS_SSH_PORT}/tcp"
@@ -784,7 +784,7 @@ Even on a non-standard port with key-only auth, automated scanners will eventual
 
 ```bash
 # Guide variables — re-export if reconnected since initial setup
-source /root/setup-variables.sh
+source /root/setup_variables.sh
 
 cat > /etc/fail2ban/jail.d/sshd.local << EOF
 [sshd]
@@ -927,7 +927,7 @@ After removing default services, the only open inbound path should be the SSH po
 
 ```bash
 # Guide variables — re-export if reconnected since initial setup
-source /root/setup-variables.sh
+source /root/setup_variables.sh
 
 firewall-cmd --permanent --zone=public --list-ports
 # Expected: <VPS_SSH_PORT>/tcp
@@ -958,7 +958,7 @@ firewall-cmd --zone=public --list-all
 Before migrating, capture the full existing network configuration — both IPv4 and IPv6. The migration in step 4.6 will mirror everything exactly into `systemd-networkd` format. Do not skip this step.
 
 ```bash
-source /root/setup-variables.sh
+source /root/setup_variables.sh
 
 # Identify the active network interface:
 echo "Active interface: $VPS_IFACE"
@@ -1009,7 +1009,7 @@ This step creates the `.network` file that mirrors the existing configuration ex
 
 ```bash
 # Guide variable — re-export if reconnected:
-source /root/setup-variables.sh
+source /root/setup_variables.sh
 
 mkdir -p /etc/systemd/network
 
@@ -1879,7 +1879,7 @@ By default every user can browse `/proc` and see all running processes — inclu
 
 ```bash
 # Guide variables — re-export if reconnected:
-source /root/setup-variables.sh
+source /root/setup_variables.sh
 
 # Create a dedicated group for processes that need full /proc visibility:
 groupadd -r procadmin
@@ -2409,7 +2409,7 @@ Runs key verification commands from every section and produces a concise pass/fa
 
 ```bash
 # Guide variables — re-export if reconnected:
-source /root/setup-variables.sh
+source /root/setup_variables.sh
 
 cat > /usr/local/bin/system-health-check << EOF
 #!/bin/bash
