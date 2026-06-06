@@ -1593,42 +1593,42 @@ cat > /etc/audit/rules.d/hardening.rules << 'EOF'
 -f 1
 
 # --- Authentication & authorization ---
--w /etc/passwd						-p wa -k identity
--w /etc/shadow						-p wa -k identity
--w /etc/group						-p wa -k identity
--w /etc/gshadow						-p wa -k identity
--w /etc/sudoers						-p wa -k sudoers
--w /etc/sudoers.d/					-p wa -k sudoers
+-w /etc/passwd                      -p wa -k identity
+-w /etc/shadow                      -p wa -k identity
+-w /etc/group                       -p wa -k identity
+-w /etc/gshadow                     -p wa -k identity
+-w /etc/sudoers                     -p wa -k sudoers
+-w /etc/sudoers.d/                  -p wa -k sudoers
 
 # --- SSH configuration ---
--w /etc/ssh/sshd_config				-p wa -k sshd_config
+-w /etc/ssh/sshd_config             -p wa -k sshd_config
 
 # --- Privilege escalation ---
--w /bin/su							-p x	-k privilege_escalation
--w /usr/bin/sudo					-p x	-k privilege_escalation
+-w /bin/su                          -p x -k privilege_escalation
+-w /usr/bin/sudo                    -p x -k privilege_escalation
 
 # --- User and group management tools ---
--w /usr/sbin/useradd				-p x	-k user_mgmt
--w /usr/sbin/usermod				-p x	-k user_mgmt
--w /usr/sbin/userdel				-p x	-k user_mgmt
--w /usr/sbin/groupadd				-p x	-k user_mgmt
--w /usr/sbin/groupmod				-p x	-k user_mgmt
--w /usr/sbin/groupdel				-p x	-k user_mgmt
+-w /usr/sbin/useradd                -p x -k user_mgmt
+-w /usr/sbin/usermod                -p x -k user_mgmt
+-w /usr/sbin/userdel                -p x -k user_mgmt
+-w /usr/sbin/groupadd               -p x -k user_mgmt
+-w /usr/sbin/groupmod               -p x -k user_mgmt
+-w /usr/sbin/groupdel               -p x -k user_mgmt
 
 # --- Network configuration ---
--w /etc/hosts						-p wa -k network_config
--w /etc/systemd/network/			-p wa -k network_config
--w /etc/systemd/resolved.conf.d/	-p wa -k network_config
+-w /etc/hosts                       -p wa -k network_config
+-w /etc/systemd/network/            -p wa -k network_config
+-w /etc/systemd/resolved.conf.d/    -p wa -k network_config
 
 # --- Kernel module loading ---
--w /sbin/insmod						-p x	-k kernel_modules
--w /sbin/rmmod						-p x	-k kernel_modules
--w /sbin/modprobe					-p x	-k kernel_modules
+-w /sbin/insmod                     -p x -k kernel_modules
+-w /sbin/rmmod                      -p x -k kernel_modules
+-w /sbin/modprobe                   -p x -k kernel_modules
 
 # --- Login and session events ---
--w /var/log/lastlog					-p wa -k logins
--w /run/faillock/					-p wa -k logins
--w /var/lib/faillock/				-p wa -k logins
+-w /var/log/lastlog                 -p wa -k logins
+-w /run/faillock/                   -p wa -k logins
+-w /var/lib/faillock/               -p wa -k logins
 
 # --- Immutable flag: lock rules at runtime ---
 # -e 2
